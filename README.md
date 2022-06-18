@@ -6,6 +6,8 @@
 
 [Go-Documentation](https://pkg.go.dev/github.com/ldclabs/cbor-patch)
 
+CBOR-Patch only supports string keys in a map.
+
 ## Import
 
 ```go
@@ -131,7 +133,7 @@ import (
 )
 
 func main() {
-  doc := cborpatch.MustFromJSON(`{
+	doc := cborpatch.MustFromJSON(`{
 		"baz": "qux",
 		"foo": [ "a", 2, "c" ]
 	}`)
@@ -160,7 +162,7 @@ import (
 )
 
 func main() {
-doc := cborpatch.MustFromJSON(`["root", ["p",
+	doc := cborpatch.MustFromJSON(`["root", ["p",
 		["span", {"data-type": "text"},
 			["span", {"data-type": "leaf"}, "Hello 1"],
 			["span", {"data-type": "leaf"}, "Hello 2"],

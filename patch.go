@@ -147,7 +147,7 @@ type Node struct {
 }
 
 // NewNode returns a new Node with the given raw encoded CBOR document.
-// a nil or empty raw document is equal to CBOR null.
+// A nil or empty raw document is equal to CBOR null.
 func NewNode(doc RawMessage) *Node {
 	if len(doc) == 0 {
 		doc = rawCBORNull
@@ -158,6 +158,7 @@ func NewNode(doc RawMessage) *Node {
 }
 
 // Patch applies the given patch to the node.
+// It only supports string keys in a map node.
 func (n *Node) Patch(p Patch, options *Options) error {
 	pd, err := n.intoContainer()
 	switch {
