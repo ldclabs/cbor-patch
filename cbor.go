@@ -59,12 +59,13 @@ var (
 )
 
 var (
-	cborMarshal   = cbor.Marshal
+	encMode, _    = cbor.CanonicalEncOptions().EncMode()
+	cborMarshal   = encMode.Marshal
 	cborUnmarshal = cbor.Unmarshal
 )
 
 // SetCBOR set the underlying global CBOR Marshal and Unmarshal functions.
-// The default is cbor.Marshal and cbor.Unmarshal.
+// The default is cbor.CanonicalEncOptions's Marshal and default cbor.Unmarshal.
 //
 //  func init() {
 //  	var EncMode, _ = cbor.CanonicalEncOptions().EncMode()

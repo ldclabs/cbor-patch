@@ -8,13 +8,13 @@ import (
 	"testing"
 )
 
-type GetValueByPathCase struct {
+type GetValueCase struct {
 	doc, path string
 	result    []byte
 	err       string
 }
 
-var GetValueByPathCases = []GetValueByPathCase{
+var GetValueCases = []GetValueCase{
 	{
 		`{ "baz": "qux" }`,
 		"/baz",
@@ -93,7 +93,7 @@ var GetValueByPathCases = []GetValueByPathCase{
 }
 
 func TestGetValueByPath(t *testing.T) {
-	for _, c := range GetValueByPathCases {
+	for _, c := range GetValueCases {
 		res, err := GetValueByPath(MustFromJSON(c.doc), c.path)
 		if c.err != "" {
 			if err == nil || !strings.Contains(err.Error(), c.err) {

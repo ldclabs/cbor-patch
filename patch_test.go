@@ -67,7 +67,7 @@ func applyPatch(doc, patch string) (string, error) {
 }
 
 func applyPatchWithOptions(doc, patch string, options *Options) (string, error) {
-	obj, err := DecodePatch(MustFromJSON(patch))
+	obj, err := NewPatch(MustFromJSON(patch))
 	if err != nil {
 		panic(err)
 	}

@@ -110,11 +110,11 @@ func NewOptions() *Options {
 	}
 }
 
-// DecodePatch decodes the passed CBOR document as an RFC 6902 patch.
-func DecodePatch(buf []byte) (Patch, error) {
+// NewPatch decodes the passed CBOR document as an RFC 6902 patch.
+func NewPatch(doc []byte) (Patch, error) {
 	var p Patch
 
-	err := cborUnmarshal(buf, &p)
+	err := cborUnmarshal(doc, &p)
 	if err != nil {
 		return nil, err
 	}
@@ -122,8 +122,7 @@ func DecodePatch(buf []byte) (Patch, error) {
 	return p, nil
 }
 
-// Apply mutates a CBOR document according to the patch, and returns the new
-// document.
+// Apply mutates a CBOR document according to the patch, and returns the new document.
 func (p Patch) Apply(doc []byte) ([]byte, error) {
 	return p.ApplyWithOptions(doc, NewOptions())
 }
@@ -153,7 +152,9 @@ func NewNode(doc RawMessage) *Node {
 	if len(doc) == 0 {
 		doc = rawCBORNull
 	}
-	return &Node{raw: &doc, doc: nil, ary: nil, ty: CBORTypePrimitives, which: eRaw}
+	raw := make(RawMessage, len(doc))
+	copy(raw, doc)
+	return &Node{raw: &raw, ty: CBORTypePrimitives}
 }
 
 // Patch applies the given patch to the node.
@@ -161,7 +162,7 @@ func (n *Node) Patch(p Patch, options *Options) error {
 	pd, err := n.intoContainer()
 	switch {
 	case err != nil:
-		return err
+		return fmt.Errorf("unexpected document type: %s, %v", n.ty.String(), err)
 	case pd == nil:
 		return fmt.Errorf("unexpected document type: %s", n.ty.String())
 	}
@@ -240,8 +241,14 @@ func (n *Node) MarshalJSON() ([]byte, error) {
 
 // UnmarshalCBOR implements the cbor.Unmarshaler interface.
 func (n *Node) UnmarshalCBOR(data []byte) error {
-	raw := RawMessage(data)
-	n.raw = &raw
+	if n == nil {
+		return errors.New("Node.UnmarshalCBOR: nil pointer")
+	}
+	if n.raw == nil {
+		raw := make(RawMessage, len(data))
+		n.raw = &raw
+	}
+	*n.raw = append((*n.raw)[0:0], data...)
 	n.which = eRaw
 	n.ty = CBORTypePrimitives
 	return nil
@@ -571,11 +578,11 @@ func (p Patch) replace(doc *container, op Operation, options *Options) error {
 
 	_, ok := con.get(key, options)
 	if ok != nil {
-		return fmt.Errorf("remove operation does not apply for %s: %v", strconv.Quote(op.Path), ErrMissing)
+		return fmt.Errorf("replace operation does not apply for %s: %v", strconv.Quote(op.Path), ErrMissing)
 	}
 
 	if err := con.set(key, NewNode(op.Value), options); err != nil {
-		return fmt.Errorf("remove operation does not apply for %s: %v", strconv.Quote(op.Path), err)
+		return fmt.Errorf("replace operation does not apply for %s: %v", strconv.Quote(op.Path), err)
 	}
 	return nil
 }

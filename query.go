@@ -93,6 +93,9 @@ type PV struct {
 	Value RawMessage `cbor:"value"`
 }
 
+// PVs represents a list of PV.
+type PVs []*PV
+
 type nodePV struct {
 	pv   *PV
 	node *Node

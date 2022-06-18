@@ -1,42 +1,20 @@
-# CBOR-Patch
-`cborpatch` is a library which provides functionality for applying
-[RFC6902 JSON patches](http://tools.ietf.org/html/rfc6902) on [CBOR](https://tools.ietf.org/html/rfc8949).
+// (c) 2022-2022, LDC Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
 
-## Documentation
+package cborpatch
 
-[Go-Documentation](https://pkg.go.dev/github.com/ldclabs/cbor-patch)
+import "fmt"
 
-## Import
-
-```go
-// package cborpatch
-import "github.com/ldclabs/cbor-patch"
-```
-
-
-## Examples
-
-### Create and apply a CBOR Patch
-
-```go
-package main
-
-import (
-	"fmt"
-
-	cborpatch "github.com/ldclabs/cbor-patch"
-)
-
-func main() {
-	original := cborpatch.MustFromJSON(`{"name": "John", "age": 24, "height": 3.21}`)
+func ExamplePatch_Apply() {
+	original := MustFromJSON(`{"name": "John", "age": 24, "height": 3.21}`)
 	fmt.Printf("%x\n", original)
 	// a363616765f94e00646e616d65644a6f686e66686569676874fb4009ae147ae147ae
-	patchDoc := cborpatch.MustFromJSON(`[
+	patchDoc := MustFromJSON(`[
 		{"op": "replace", "path": "/name", "value": "Jane"},
 		{"op": "remove", "path": "/height"}
 	]`)
 
-	patch, err := cborpatch.NewPatch(patchDoc)
+	patch, err := NewPatch(patchDoc)
 	if err != nil {
 		panic(err)
 	}
@@ -46,36 +24,29 @@ func main() {
 	}
 	fmt.Printf("%x\n", modified)
 	// a263616765f94e00646e616d65644a616e65
-	fmt.Printf("%s\n", cborpatch.MustToJSON(modified))
+	fmt.Printf("%s\n", MustToJSON(modified))
+	// {"age":24,"name":"Jane"}
+
+	// Output:
+	// a363616765f94e00646e616d65644a6f686e66686569676874fb4009ae147ae147ae
+	// a263616765f94e00646e616d65644a616e65
 	// {"age":24,"name":"Jane"}
 }
-```
 
-### Create a Node and apply more Patchs
-
-```go
-package main
-
-import (
-	"fmt"
-
-	cborpatch "github.com/ldclabs/cbor-patch"
-)
-
-func main() {
-	original := cborpatch.MustFromJSON(`{"name": "John", "age": 24, "height": 3.21}`)
+func ExampleNode_Patch() {
+	original := MustFromJSON(`{"name": "John", "age": 24, "height": 3.21}`)
 	fmt.Printf("%x\n", original)
 	// a363616765f94e00646e616d65644a6f686e66686569676874fb4009ae147ae147ae
-	patchDoc0 := cborpatch.MustFromJSON(`[
+	patchDoc0 := MustFromJSON(`[
 		{"op": "replace", "path": "/name", "value": "Jane"},
 		{"op": "remove", "path": "/height"}
 	]`)
-	patchDoc1 := cborpatch.MustFromJSON(`[
+	patchDoc1 := MustFromJSON(`[
 		{"op": "replace", "path": "/age", "value": 25}
 	]`)
 
-	node := cborpatch.NewNode(original)
-	patch, err := cborpatch.NewPatch(patchDoc0)
+	node := NewNode(original)
+	patch, err := NewPatch(patchDoc0)
 	if err != nil {
 		panic(err)
 	}
@@ -96,7 +67,7 @@ func main() {
 	fmt.Printf("%s\n", string(modified))
 	// {"age":24,"name":"Jane"}
 
-	patch, err = cborpatch.NewPatch(patchDoc1)
+	patch, err = NewPatch(patchDoc1)
 	if err != nil {
 		panic(err)
 	}
@@ -116,26 +87,21 @@ func main() {
 	}
 	fmt.Printf("%s\n", string(modified))
 	// {"age":25,"name":"Jane"}
+
+	// Output:
+	// a363616765f94e00646e616d65644a6f686e66686569676874fb4009ae147ae147ae
+	// a263616765f94e00646e616d65644a616e65
+	// {"age":24,"name":"Jane"}
+	// a263616765f94e40646e616d65644a616e65
+	// {"age":25,"name":"Jane"}
 }
-```
 
-### Get value by path
-
-```go
-package main
-
-import (
-	"fmt"
-
-	cborpatch "github.com/ldclabs/cbor-patch"
-)
-
-func main() {
-  doc := cborpatch.MustFromJSON(`{
+func ExampleNode_GetValue() {
+	doc := MustFromJSON(`{
 		"baz": "qux",
 		"foo": [ "a", 2, "c" ]
 	}`)
-	node := cborpatch.NewNode(doc)
+	node := NewNode(doc)
 
 	value, err := node.GetValue("/foo/0", nil)
 	if err != nil {
@@ -143,24 +109,16 @@ func main() {
 	}
 	fmt.Printf("%x\n", value)
 	// 6161
-	fmt.Printf("%s\n", cborpatch.MustToJSON(value))
+	fmt.Printf("%s\n", MustToJSON(value))
+	// "a"
+
+	// Output:
+	// 6161
 	// "a"
 }
-```
 
-### Find children by test operations
-
-```go
-package main
-
-import (
-	"fmt"
-
-	cborpatch "github.com/ldclabs/cbor-patch"
-)
-
-func main() {
-doc := cborpatch.MustFromJSON(`["root", ["p",
+func ExampleNode_FindChildren() {
+	doc := MustFromJSON(`["root", ["p",
 		["span", {"data-type": "text"},
 			["span", {"data-type": "leaf"}, "Hello 1"],
 			["span", {"data-type": "leaf"}, "Hello 2"],
@@ -169,10 +127,10 @@ doc := cborpatch.MustFromJSON(`["root", ["p",
 		]
 	]]`)
 
-	node := cborpatch.NewNode(doc)
+	node := NewNode(doc)
 	tests := PVs{
-		{"/0", cborpatch.MustFromJSON(`"span"`)},
-		{"/1/data-type", cborpatch.MustFromJSON(`"leaf"`)},
+		{"/0", MustFromJSON(`"span"`)},
+		{"/1/data-type", MustFromJSON(`"leaf"`)},
 	}
 
 	result, err := node.FindChildren(tests, nil)
@@ -180,7 +138,7 @@ doc := cborpatch.MustFromJSON(`["root", ["p",
 		panic(err)
 	}
 	for _, r := range result {
-		fmt.Printf("Path: \"%s\", Value: %x, JSON: %s\n", r.Path, r.Value, cborpatch.MustToJSON(r.Value))
+		fmt.Printf("Path: \"%s\", Value: %x, JSON: %s\n", r.Path, r.Value, MustToJSON(r.Value))
 	}
 
 	// Output:
@@ -188,4 +146,3 @@ doc := cborpatch.MustFromJSON(`["root", ["p",
 	// Path: "/1/1/3", Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2032, JSON: ["span",{"data-type":"leaf"},"Hello 2"]
 	// Path: "/1/1/4", Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2033, JSON: ["span",{"data-type":"leaf"},"Hello 3"]
 }
-```
