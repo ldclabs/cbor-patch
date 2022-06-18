@@ -62,37 +62,21 @@ func compareJSON(a, b string) bool {
 	return reflect.DeepEqual(objA, objB)
 }
 
-func mustFromJSONData(doc string) []byte {
-	data, err := FromJSON([]byte(doc), nil)
-	if err != nil {
-		panic(err)
-	}
-	return data
-}
-
-func mustToJSONData(doc []byte) []byte {
-	data, err := ToJSON(doc, nil)
-	if err != nil {
-		panic(err)
-	}
-	return data
-}
-
 func applyPatch(doc, patch string) (string, error) {
-	return applyPatchWithOptions(doc, patch, NewApplyOptions())
+	return applyPatchWithOptions(doc, patch, NewOptions())
 }
 
-func applyPatchWithOptions(doc, patch string, options *ApplyOptions) (string, error) {
-	obj, err := DecodePatch(mustFromJSONData(patch))
+func applyPatchWithOptions(doc, patch string, options *Options) (string, error) {
+	obj, err := DecodePatch(MustFromJSON(patch))
 	if err != nil {
 		panic(err)
 	}
 
-	out, err := obj.ApplyWithOptions(mustFromJSONData(doc), options)
+	out, err := obj.ApplyWithOptions(MustFromJSON(doc), options)
 	if err != nil {
 		return "", err
 	}
-	return string(mustToJSONData(out)), nil
+	return MustToJSON(out), nil
 }
 
 type Case struct {
@@ -110,15 +94,6 @@ func repeatedA(r int) string {
 }
 
 var Cases = []Case{
-	{
-		``,
-		`[
-         { "op": "add", "path": "/baz", "value": "qux" }
-     ]`,
-		``,
-		false,
-		false,
-	},
 	{
 		`{ "foo": "bar"}`,
 		`[
@@ -645,6 +620,12 @@ var MutationTestCases = []BadCase{
 
 var BadCases = []BadCase{
 	{
+		``,
+		`[
+	       { "op": "add", "path": "/baz", "value": "qux" }
+	   ]`,
+	},
+	{
 		`{ "foo": "bar" }`,
 		`[ { "op": "add", "path": "/baz/bat", "value": "qux" } ]`,
 	},
@@ -776,7 +757,7 @@ func TestAllCases(t *testing.T) {
 	}
 
 	// Test patch.ApplyWithOptions happy-path cases.
-	options := NewApplyOptions()
+	options := NewOptions()
 
 	for _, c := range Cases {
 		options.AllowMissingPathOnRemove = c.allowMissingPathOnRemove
@@ -910,17 +891,17 @@ var TestCases = []TestCase{
 }
 
 func TestAllTest(t *testing.T) {
-	for _, c := range TestCases {
+	for i, c := range TestCases {
 		_, err := applyPatch(c.doc, c.patch)
 
 		if c.result && err != nil {
-			t.Errorf("Testing failed when it should have passed: %s", err)
+			t.Errorf("Testing case %d failed when it should have passed: %s", i, err)
 		} else if !c.result && err == nil {
-			t.Errorf("Testing passed when it should have failed: %s", err)
+			t.Errorf("Testing case %d passed when it should have failed: %s", i, err)
 		} else if !c.result {
 			expected := fmt.Sprintf("testing value %s failed: test failed", strconv.Quote(c.failedPath))
 			if err.Error() != expected {
-				t.Errorf("Testing failed as expected but invalid message: expected [%s], got [%s]", expected, err)
+				t.Errorf("Testing case %d failed as expected but invalid message: expected [%s], got [%s]", i, expected, err)
 			}
 		}
 	}
@@ -930,7 +911,7 @@ func TestAdd(t *testing.T) {
 	testCases := []struct {
 		name                   string
 		key                    string
-		val                    lazyNode
+		val                    Node
 		arr                    partialArray
 		rejectNegativeIndicies bool
 		err                    string
@@ -938,40 +919,40 @@ func TestAdd(t *testing.T) {
 		{
 			name: "should work",
 			key:  "0",
-			val:  lazyNode{},
+			val:  Node{},
 			arr:  partialArray{},
 		},
 		{
 			name: "index too large",
 			key:  "1",
-			val:  lazyNode{},
+			val:  Node{},
 			arr:  partialArray{},
 			err:  "unable to access invalid index 1: invalid index referenced",
 		},
 		{
 			name: "negative should work",
 			key:  "-1",
-			val:  lazyNode{},
+			val:  Node{},
 			arr:  partialArray{},
 		},
 		{
 			name: "negative too small",
 			key:  "-2",
-			val:  lazyNode{},
+			val:  Node{},
 			arr:  partialArray{},
 			err:  "unable to access invalid index -2: invalid index referenced",
 		},
 		{
 			name:                   "negative but negative disabled",
 			key:                    "-1",
-			val:                    lazyNode{},
+			val:                    Node{},
 			arr:                    partialArray{},
 			rejectNegativeIndicies: true,
 			err:                    "unable to access invalid index -1: invalid index referenced",
 		},
 	}
 
-	options := NewApplyOptions()
+	options := NewOptions()
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1087,12 +1068,12 @@ var EqualityCases = []EqualityCase{
 func TestEquality(t *testing.T) {
 	for _, tc := range EqualityCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := Equal(mustFromJSONData(tc.a), mustFromJSONData(tc.b))
+			got := Equal(MustFromJSON(tc.a), MustFromJSON(tc.b))
 			if got != tc.equal {
 				t.Errorf("Expected Equal(%s, %s) to return %t, but got %t", tc.a, tc.b, tc.equal, got)
 			}
 
-			got = Equal(mustFromJSONData(tc.b), mustFromJSONData(tc.a))
+			got = Equal(MustFromJSON(tc.b), MustFromJSON(tc.a))
 			if got != tc.equal {
 				t.Errorf("Expected Equal(%s, %s) to return %t, but got %t", tc.b, tc.a, tc.equal, got)
 			}

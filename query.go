@@ -9,99 +9,93 @@ import (
 	"strings"
 )
 
-func GetValueByPath(doc []byte, path string, options *ApplyOptions) ([]byte, error) {
-	if len(doc) == 0 {
-		return doc, nil
+// GetValueByPath returns the value of a given path in a raw encoded CBOR document.
+func GetValueByPath(doc []byte, path string) ([]byte, error) {
+	return NewNode(doc).GetValue(path, nil)
+}
+
+// GetChild returns the child node of a given path in the node.
+func (n *Node) GetChild(path string, options *Options) (*Node, error) {
+	pd, err := n.intoContainer()
+	switch {
+	case err != nil:
+		return nil, err
+	case pd == nil:
+		return nil, fmt.Errorf("unexpected document type: %s", n.ty.String())
 	}
 
-	var pd container
-	switch t := ReadCBORType(doc); t {
-	case CBORTypeMap:
-		pd = &partialDoc{}
-	case CBORTypeArray:
-		pd = &partialArray{}
-	default:
-		return nil, fmt.Errorf("unexpected document type: %s", t.String())
+	if options == nil {
+		options = NewOptions()
+	}
+	con, key := findObject(&pd, path, options)
+	if con == nil {
+		return nil, fmt.Errorf("unable to get child node by %s: %v", strconv.Quote(path), ErrMissing)
+	}
+	return con.get(key, options)
+}
+
+// GetValue returns the child node of a given path in the node.
+func (n *Node) GetValue(path string, options *Options) (RawMessage, error) {
+	cn, err := n.GetChild(path, options)
+	if err != nil {
+		return nil, err
+	}
+	return cn.MarshalCBOR()
+}
+
+// FindChildren returns the children nodes that pass the given tests in the node.
+func (n *Node) FindChildren(tests []*PV, options *Options) (result []*PV, err error) {
+	if len(tests) == 0 {
+		return
 	}
 
-	err := cborUnmarshal(doc, pd)
+	if options == nil {
+		options = NewOptions()
+	}
+
+	subpaths, err := toSubpaths(tests[0].Path)
 	if err != nil {
 		return nil, err
 	}
 
-	if options == nil {
-		options = NewApplyOptions()
-	}
-	con, key := findObject(&pd, path, options)
-	if con == nil {
-		return nil, fmt.Errorf("get value by %s error: %v", strconv.Quote(path), ErrMissing)
-	}
-
-	val, err := con.get(key, options)
+	res, err := findChildNodes(n, NewNode(tests[0].Value), "", subpaths, options)
 	if err != nil {
-		return nil, fmt.Errorf("get value by %s error: %v", strconv.Quote(path), err)
+		return nil, err
 	}
-	return val.MarshalCBOR()
-}
-
-type ChildNode struct {
-	Path  string     `cbor:"path"`
-	Value RawMessage `cbor:"value"`
-	node  *lazyNode
-}
-
-type Filter map[string]RawMessage
-
-func FindChildrenByFilters(doc []byte, filters []Filter, options *ApplyOptions) (nodes []*ChildNode, err error) {
-	if len(filters) == 0 {
-		return
-	}
-	if options == nil {
-		options = NewApplyOptions()
-	}
-	dn := newLazyNode(newRawMessage(doc))
-	for _, filter := range filters {
-		keys := make([]string, 0, len(filter))
-		for querypath := range filter {
-			keys = append(keys, querypath)
-		}
-		if len(keys) == 0 {
-			continue
-		}
-
-		subpaths, err := toSubpaths(keys[0])
+	for _, test := range tests[1:] {
+		subpaths, err := toSubpaths(test.Path)
 		if err != nil {
 			return nil, err
 		}
-		value := filter[keys[0]]
-		v := newLazyNode(&value)
-		keys = keys[1:]
+		rs := make([]*nodePV, 0, len(res))
+		v := NewNode(test.Value)
+		for _, r := range res {
+			if assertObject(r.node, subpaths, v, options) {
+				rs = append(rs, r)
+			}
+		}
 
-		ns, err := findChildNodes(dn, v, "", subpaths, options)
-		if err != nil {
-			return nil, err
+		res = rs
+		if len(res) == 0 {
+			break
 		}
-		for _, key := range keys {
-			subpaths, err := toSubpaths(key)
-			if err != nil {
-				return nil, err
-			}
-			value := filter[key]
-			v := newLazyNode(&value)
-			_ns := make([]*ChildNode, 0, len(ns))
-			for _, n := range ns {
-				if assertObject(n.node, subpaths, v, options) {
-					_ns = append(_ns, n)
-				}
-			}
-			ns = _ns
-			if len(ns) == 0 {
-				break
-			}
-		}
-		nodes = append(nodes, ns...)
+	}
+
+	for _, r := range res {
+		result = append(result, r.pv)
 	}
 	return
+}
+
+// PV represents a node with a path and a raw encoded CBOR value.
+type PV struct {
+	Path  string     `cbor:"path"`
+	Value RawMessage `cbor:"value"`
+}
+
+type nodePV struct {
+	pv   *PV
+	node *Node
 }
 
 func toSubpaths(s string) ([]string, error) {
@@ -113,8 +107,8 @@ func toSubpaths(s string) ([]string, error) {
 }
 
 func findChildNodes(
-	node, value *lazyNode, parentpath string, subpaths []string, options *ApplyOptions,
-) (res []*ChildNode, err error) {
+	node, value *Node, parentpath string, subpaths []string, options *Options,
+) (res []*nodePV, err error) {
 
 	node.intoContainer()
 	if node.which == eOther {
@@ -122,7 +116,7 @@ func findChildNodes(
 	}
 
 	if assertObject(node, subpaths, value, options) {
-		res = append(res, &ChildNode{Path: parentpath, Value: *node.raw, node: node})
+		res = append(res, &nodePV{&PV{parentpath, *node.raw}, node})
 	}
 
 	if node.which == eAry {
@@ -130,7 +124,8 @@ func findChildNodes(
 			if n == nil {
 				continue
 			}
-			r, e := findChildNodes(n, value, fmt.Sprintf("%s/%d", parentpath, i), subpaths, options)
+			r, e := findChildNodes(
+				n, value, fmt.Sprintf("%s/%d", parentpath, i), subpaths, options)
 			if e != nil {
 				return nil, e
 			}
@@ -143,7 +138,8 @@ func findChildNodes(
 			if n == nil {
 				continue
 			}
-			r, e := findChildNodes(n, value, fmt.Sprintf("%s/%s", parentpath, encodePatchKey(k)), subpaths, options)
+			r, e := findChildNodes(
+				n, value, fmt.Sprintf("%s/%s", parentpath, encodePatchKey(k)), subpaths, options)
 			if e != nil {
 				return nil, e
 			}
@@ -155,9 +151,9 @@ func findChildNodes(
 	return
 }
 
-func assertObject(node *lazyNode, subpaths []string, value *lazyNode, options *ApplyOptions) bool {
+func assertObject(node *Node, subpaths []string, value *Node, options *Options) bool {
 	last := len(subpaths) - 1
-	doc := node.intoContainer()
+	doc, _ := node.intoContainer()
 	if doc == nil {
 		return false
 	}
@@ -178,7 +174,7 @@ func assertObject(node *lazyNode, subpaths []string, value *lazyNode, options *A
 			return false
 		}
 
-		doc = next.intoContainer()
+		doc, _ = next.intoContainer()
 		if doc == nil {
 			return false
 		}

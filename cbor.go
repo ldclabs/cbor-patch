@@ -39,6 +39,7 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
+// Predefined CBORTypes.
 const (
 	CBORTypePositiveInt CBORType = 0x00
 	CBORTypeNegativeInt CBORType = 0x20
@@ -62,6 +63,18 @@ var (
 	cborUnmarshal = cbor.Unmarshal
 )
 
+// SetCBOR set the underlying global CBOR Marshal and Unmarshal functions.
+// The default is cbor.Marshal and cbor.Unmarshal.
+//
+//  func init() {
+//  	var EncMode, _ = cbor.CanonicalEncOptions().EncMode()
+//  	var DecMode, _ = cbor.DecOptions{
+//  		DupMapKey:   cbor.DupMapKeyQuiet,
+//  		IndefLength: cbor.IndefLengthForbidden,
+//  	}.DecMode()
+//
+//  	cborpatch.SetCBOR(EncMode.Marshal, DecMode.Unmarshal)
+//  }
 func SetCBOR(
 	marshal func(v interface{}) ([]byte, error),
 	unmarshal func(data []byte, v interface{}) error,
@@ -70,10 +83,13 @@ func SetCBOR(
 	cborUnmarshal = unmarshal
 }
 
+// RawMessage is a raw encoded CBOR value.
 type RawMessage = cbor.RawMessage
 
+// CBORType is the type of a raw encoded CBOR value.
 type CBORType uint8
 
+// String returns a string representation of CBORType.
 func (t CBORType) String() string {
 	switch t {
 	case CBORTypePositiveInt:
@@ -97,6 +113,7 @@ func (t CBORType) String() string {
 	}
 }
 
+// ReadCBORType returns the type of a raw encoded CBOR value.
 func ReadCBORType(data []byte) CBORType {
 	switch {
 	case len(data) == 0:
