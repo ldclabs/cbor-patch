@@ -1,7 +1,7 @@
 # CBOR-Patch
-----------
-[![CI](https://github.com/ldclabs/cbor-patch/workflows/ci/badge.svg)](https://github.com/ldclabs/cbor-patch/actions?query=workflow%3Aci)
-[![Codecov](https://codecov.io/gh/ldclabs/cbor-patch/branch/main/graph/badge.svg?token=2G1SE83FY5)](https://codecov.io/gh/ldclabs/cbor-patch)
+
+[![ci](https://github.com/ldclabs/cbor-patch/actions/workflows/ci.yml/badge.svg)](https://github.com/ldclabs/cbor-patch/actions?query=workflow%3Aci)
+[![codecov](https://codecov.io/gh/ldclabs/cbor-patch/branch/main/graph/badge.svg?token=2G1SE83FY5)](https://codecov.io/gh/ldclabs/cbor-patch)
 
 `cborpatch` is a library which provides functionality for applying
 [RFC6902 JSON patches](https://datatracker.ietf.org/doc/html/rfc6902) on [CBOR](https://datatracker.ietf.org/doc/html/rfc8949).
