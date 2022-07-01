@@ -170,7 +170,7 @@ func assertObject(node *Node, subpaths []string, value *Node, options *Options) 
 			if next == nil {
 				return value.isNull()
 			}
-			return next.equal(value)
+			return next.Equal(value)
 		}
 
 		if next == nil {

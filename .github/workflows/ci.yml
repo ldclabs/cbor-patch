@@ -7,7 +7,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [macos-latest, ubuntu-latest]
         go-version: [1.18.x]
 
     steps:
@@ -29,4 +29,14 @@ jobs:
 
     - name: Run tests
       run: |
-        go test -race -v ./...
+        go test -v -race -timeout="3m" -coverprofile="./coverage.out" -covermode="atomic" ./...
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v2
+      with:
+        directory: ./
+        fail_ci_if_error: true
+        files: ./coverage.out
+        flags: unittests
+        name: codecov-umbrella
+        verbose: true

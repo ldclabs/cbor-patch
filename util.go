@@ -61,5 +61,5 @@ func MustToJSON(doc []byte) string {
 
 // Equal indicates if 2 CBOR documents have the same structural equality.
 func Equal(a, b []byte) bool {
-	return NewNode(a).equal(NewNode(b))
+	return NewNode(a).Equal(NewNode(b))
 }
