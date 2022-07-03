@@ -110,6 +110,10 @@ func TestGetValueByPath(t *testing.T) {
 	}
 }
 
+func TestGetValueByCBORPath(t *testing.T) {
+	// TODO
+}
+
 type FindChildrenCase struct {
 	doc    []byte
 	tests  []*PV
