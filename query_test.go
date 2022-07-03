@@ -88,7 +88,7 @@ var GetValueCases = []GetValueCase{
 	  }`,
 		"/fooo",
 		nil,
-		`unable to get nonexistent key "fooo": missing value`,
+		`unable to get nonexistent key "fooo", missing value`,
 	},
 }
 

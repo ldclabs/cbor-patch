@@ -43,6 +43,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -899,8 +900,8 @@ func TestAllTest(t *testing.T) {
 		} else if !c.result && err == nil {
 			t.Errorf("Testing case %d passed when it should have failed: %s", i, err)
 		} else if !c.result {
-			expected := fmt.Sprintf("testing value %s failed: test failed", strconv.Quote(c.failedPath))
-			if err.Error() != expected {
+			expected := fmt.Sprintf("test operation for path %s failed, expected", strconv.Quote(c.failedPath))
+			if !strings.Contains(err.Error(), expected) {
 				t.Errorf("Testing case %d failed as expected but invalid message: expected [%s], got [%s]", i, expected, err)
 			}
 		}
@@ -927,7 +928,7 @@ func TestAdd(t *testing.T) {
 			key:  "1",
 			val:  Node{},
 			arr:  partialArray{},
-			err:  "unable to access invalid index 1: invalid index referenced",
+			err:  "unable to access invalid index 1, invalid index referenced",
 		},
 		{
 			name: "negative should work",
@@ -940,7 +941,7 @@ func TestAdd(t *testing.T) {
 			key:  "-2",
 			val:  Node{},
 			arr:  partialArray{},
-			err:  "unable to access invalid index -2: invalid index referenced",
+			err:  "unable to access invalid index -2, invalid index referenced",
 		},
 		{
 			name:                   "negative but negative disabled",
@@ -948,7 +949,7 @@ func TestAdd(t *testing.T) {
 			val:                    Node{},
 			arr:                    partialArray{},
 			rejectNegativeIndicies: true,
-			err:                    "unable to access invalid index -1: invalid index referenced",
+			err:                    "unable to access invalid index -1, invalid index referenced",
 		},
 	}
 
