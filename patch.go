@@ -70,6 +70,11 @@ const (
 	eOther
 )
 
+// Equal indicates if 2 CBOR documents have the same structural equality.
+func Equal(a, b []byte) bool {
+	return NewNode(a).Equal(NewNode(b))
+}
+
 // Operation is a single CBOR-Patch step, such as a single 'add' operation.
 type Operation struct {
 	Op    string     `cbor:"op"`
@@ -174,9 +179,9 @@ func (n *Node) Patch(p Patch, options *Options) error {
 	pd, err := n.intoContainer()
 	switch {
 	case err != nil:
-		return fmt.Errorf("unexpected node %s, %v", strconv.Quote(n.String()), err)
+		return fmt.Errorf("unexpected node %q, %v", n.String(), err)
 	case pd == nil:
-		return fmt.Errorf("unexpected node %s", strconv.Quote(n.String()))
+		return fmt.Errorf("unexpected node %q", n.String())
 	}
 
 	if options == nil {
@@ -198,7 +203,7 @@ func (n *Node) Patch(p Patch, options *Options) error {
 		case "copy":
 			err = p.copy(&pd, op, &accumulatedCopySize, options)
 		default:
-			err = fmt.Errorf("unexpected operation %s", strconv.Quote(op.Op))
+			err = fmt.Errorf("unexpected operation %q", op.Op)
 		}
 
 		if err != nil {
@@ -303,7 +308,7 @@ func (d *partialDoc) add(key string, val *Node, options *Options) error {
 func (d *partialDoc) get(key string, options *Options) (*Node, error) {
 	v, ok := d.obj[key]
 	if !ok {
-		return nil, fmt.Errorf("unable to get nonexistent key %s, %v", strconv.Quote(key), ErrMissing)
+		return nil, fmt.Errorf("unable to get nonexistent key %q, %v", key, ErrMissing)
 	}
 	if v == nil {
 		v = NewNode(rawCBORNull)
@@ -317,7 +322,7 @@ func (d *partialDoc) remove(key string, options *Options) error {
 		if options.AllowMissingPathOnRemove {
 			return nil
 		}
-		return fmt.Errorf("unable to remove nonexistent key %s, %v", strconv.Quote(key), ErrMissing)
+		return fmt.Errorf("unable to remove nonexistent key %q, %v", key, ErrMissing)
 	}
 	delete(d.obj, key)
 	return nil
@@ -542,13 +547,11 @@ func (p Patch) add(doc *container, op Operation, options *Options) error {
 
 	con, key := findObject(doc, op.Path, options)
 	if con == nil {
-		return fmt.Errorf("add operation does not apply for %s, %v",
-			strconv.Quote(op.Path), ErrMissing)
+		return fmt.Errorf("add operation does not apply for %q, %v", op.Path, ErrMissing)
 	}
 
 	if err := con.add(key, NewNode(op.Value), options); err != nil {
-		return fmt.Errorf("add operation does not apply for %s, %v",
-			strconv.Quote(op.Path), err)
+		return fmt.Errorf("add operation does not apply for %q, %v", op.Path, err)
 	}
 
 	return nil
@@ -560,13 +563,11 @@ func (p Patch) remove(doc *container, op Operation, options *Options) error {
 		if options.AllowMissingPathOnRemove {
 			return nil
 		}
-		return fmt.Errorf("remove operation does not apply for %s, %v",
-			strconv.Quote(op.Path), ErrMissing)
+		return fmt.Errorf("remove operation does not apply for %q, %v", op.Path, ErrMissing)
 	}
 
 	if err := con.remove(key, options); err != nil {
-		return fmt.Errorf("remove operation does not apply for %s, %v",
-			strconv.Quote(op.Path), err)
+		return fmt.Errorf("remove operation does not apply for %q, %v", op.Path, err)
 	}
 	return nil
 }
@@ -590,19 +591,16 @@ func (p Patch) replace(doc *container, op Operation, options *Options) error {
 
 	con, key := findObject(doc, op.Path, options)
 	if con == nil {
-		return fmt.Errorf("replace operation does not apply for %s, %v",
-			strconv.Quote(op.Path), ErrMissing)
+		return fmt.Errorf("replace operation does not apply for %q, %v", op.Path, ErrMissing)
 	}
 
 	_, ok := con.get(key, options)
 	if ok != nil {
-		return fmt.Errorf("replace operation does not apply for %s, %v",
-			strconv.Quote(op.Path), ErrMissing)
+		return fmt.Errorf("replace operation does not apply for %q, %v", op.Path, ErrMissing)
 	}
 
 	if err := con.set(key, NewNode(op.Value), options); err != nil {
-		return fmt.Errorf("replace operation does not apply for %s, %v",
-			strconv.Quote(op.Path), err)
+		return fmt.Errorf("replace operation does not apply for %q, %v", op.Path, err)
 	}
 	return nil
 }
@@ -610,30 +608,25 @@ func (p Patch) replace(doc *container, op Operation, options *Options) error {
 func (p Patch) move(doc *container, op Operation, options *Options) error {
 	con, key := findObject(doc, op.From, options)
 	if con == nil {
-		return fmt.Errorf("move operation does not apply for from path %s, %v",
-			strconv.Quote(op.From), ErrMissing)
+		return fmt.Errorf("move operation does not apply for from %q, %v", op.From, ErrMissing)
 	}
 
 	val, err := con.get(key, options)
 	if err != nil {
-		return fmt.Errorf("move operation does not apply for from path %s, %v",
-			strconv.Quote(op.From), err)
+		return fmt.Errorf("move operation does not apply for from %q, %v", op.From, err)
 	}
 
 	if err = con.remove(key, options); err != nil {
-		return fmt.Errorf("move operation does not apply for from path %s, %v",
-			strconv.Quote(op.From), err)
+		return fmt.Errorf("move operation does not apply for from %q, %v", op.From, err)
 	}
 
 	con, key = findObject(doc, op.Path, options)
 	if con == nil {
-		return fmt.Errorf("move operation does not apply for path %s, %v",
-			strconv.Quote(op.Path), ErrMissing)
+		return fmt.Errorf("move operation does not apply for path %q, %v", op.Path, ErrMissing)
 	}
 
 	if err = con.add(key, val, options); err != nil {
-		return fmt.Errorf("move operation does not apply for path %s, %v",
-			strconv.Quote(op.Path), err)
+		return fmt.Errorf("move operation does not apply for path %q, %v", op.Path, err)
 	}
 	return nil
 }
@@ -655,66 +648,59 @@ func (p Patch) test(doc *container, op Operation, options *Options) error {
 			return nil
 		}
 
-		return fmt.Errorf("test operation for path %s failed, not equal",
-			strconv.Quote(op.Path))
+		return fmt.Errorf("test operation for path %q failed, not equal", op.Path)
 	}
 
 	con, key := findObject(doc, op.Path, options)
 	if con == nil {
-		return fmt.Errorf("test operation for path %s failed, %s",
-			strconv.Quote(op.Path), ErrMissing)
+		return fmt.Errorf("test operation for path %q failed, %v", op.Path, ErrMissing)
 	}
 
 	val, err := con.get(key, options)
 	if err != nil && !strings.Contains(err.Error(), ErrMissing.Error()) {
-		return fmt.Errorf("test operation for path %s failed, %s",
-			strconv.Quote(op.Path), err)
+		return fmt.Errorf("test operation for path %q failed, %v", op.Path, err)
 	}
 
 	if val == nil || val.isNull() {
 		if isNull(op.Value) {
 			return nil
 		}
-		return fmt.Errorf("test operation for path %s failed, expected %s, got nil",
-			strconv.Quote(op.Path), strconv.Quote(NewNode(op.Value).String()))
+		return fmt.Errorf("test operation for path %q failed, expected %q, got nil",
+			op.Path, NewNode(op.Value).String())
 
 	} else if op.Value == nil {
-		return fmt.Errorf("test operation for path %s failed, expected nil, got %s",
-			strconv.Quote(op.Path), strconv.Quote(val.String()))
+		return fmt.Errorf("test operation for path %q failed, expected nil, got %q",
+			op.Path, val.String())
 	}
 
 	if val.Equal(NewNode(op.Value)) {
 		return nil
 	}
 
-	return fmt.Errorf("test operation for path %s failed, expected %s, got %s",
-		strconv.Quote(op.Path), strconv.Quote(NewNode(op.Value).String()), strconv.Quote(val.String()))
+	return fmt.Errorf("test operation for path %q failed, expected %q, got %q",
+		op.Path, NewNode(op.Value).String(), val.String())
 }
 
 func (p Patch) copy(doc *container, op Operation, accumulatedCopySize *int64, options *Options) error {
 	con, key := findObject(doc, op.From, options)
 
 	if con == nil {
-		return fmt.Errorf("copy operation does not apply for from path %s, %v",
-			strconv.Quote(op.From), ErrMissing)
+		return fmt.Errorf("copy operation does not apply for from path %q, %v", op.From, ErrMissing)
 	}
 
 	val, err := con.get(key, options)
 	if err != nil {
-		return fmt.Errorf("copy operation does not apply for from path %s, %v",
-			strconv.Quote(op.From), err)
+		return fmt.Errorf("copy operation does not apply for from path %q, %v", op.From, err)
 	}
 
 	con, key = findObject(doc, op.Path, options)
 	if con == nil {
-		return fmt.Errorf("copy operation does not apply for path %s, %v",
-			strconv.Quote(op.Path), ErrMissing)
+		return fmt.Errorf("copy operation does not apply for path %q, %v", op.Path, ErrMissing)
 	}
 
 	valCopy, sz, err := deepCopy(val)
 	if err != nil {
-		return fmt.Errorf("copy operation does not apply for path %s while performing deep copy, %v",
-			strconv.Quote(op.Path), err)
+		return fmt.Errorf("copy operation does not apply for path %q while performing deep copy, %v", op.Path, err)
 	}
 
 	(*accumulatedCopySize) += int64(sz)
@@ -725,7 +711,7 @@ func (p Patch) copy(doc *container, op Operation, accumulatedCopySize *int64, op
 	err = con.add(key, valCopy, options)
 	if err != nil {
 		return fmt.Errorf("copy operation does not apply for path %s while adding value during copy, %v",
-			strconv.Quote(op.Path), err)
+			op.Path, err)
 	}
 
 	return nil
@@ -824,8 +810,7 @@ func ensurePathExists(pd *container, path string, options *Options) error {
 		} else {
 			doc, err = target.intoContainer()
 			if doc == nil {
-				return fmt.Errorf("unable to ensure path for invalid target %s, %v",
-					strconv.Quote(target.String()), err)
+				return fmt.Errorf("unable to ensure path for invalid target %q, %v", target.String(), err)
 			}
 		}
 	}

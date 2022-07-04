@@ -8,7 +8,7 @@ import "fmt"
 func ExamplePatch_Apply() {
 	original := MustFromJSON(`{"name": "John", "age": 24, "height": 3.21}`)
 	fmt.Printf("%x\n", original)
-	// a363616765f94e00646e616d65644a6f686e66686569676874fb4009ae147ae147ae
+	// a3636167651818646e616d65644a6f686e66686569676874fb4009ae147ae147ae
 	patchDoc := MustFromJSON(`[
 		{"op": "replace", "path": "/name", "value": "Jane"},
 		{"op": "remove", "path": "/height"}
@@ -23,20 +23,20 @@ func ExamplePatch_Apply() {
 		panic(err)
 	}
 	fmt.Printf("%x\n", modified)
-	// a263616765f94e00646e616d65644a616e65
+	// a2636167651818646e616d65644a616e65
 	fmt.Printf("%s\n", MustToJSON(modified))
 	// {"age":24,"name":"Jane"}
 
 	// Output:
-	// a363616765f94e00646e616d65644a6f686e66686569676874fb4009ae147ae147ae
-	// a263616765f94e00646e616d65644a616e65
+	// a3636167651818646e616d65644a6f686e66686569676874fb4009ae147ae147ae
+	// a2636167651818646e616d65644a616e65
 	// {"age":24,"name":"Jane"}
 }
 
 func ExampleNode_Patch() {
 	original := MustFromJSON(`{"name": "John", "age": 24, "height": 3.21}`)
 	fmt.Printf("%x\n", original)
-	// a363616765f94e00646e616d65644a6f686e66686569676874fb4009ae147ae147ae
+	// a3636167651818646e616d65644a6f686e66686569676874fb4009ae147ae147ae
 	patchDoc0 := MustFromJSON(`[
 		{"op": "replace", "path": "/name", "value": "Jane"},
 		{"op": "remove", "path": "/height"}
@@ -59,7 +59,7 @@ func ExampleNode_Patch() {
 		panic(err)
 	}
 	fmt.Printf("%x\n", modified)
-	// a263616765f94e00646e616d65644a616e65
+	// a2636167651818646e616d65644a616e65
 	modified, err = node.MarshalJSON()
 	if err != nil {
 		panic(err)
@@ -80,7 +80,7 @@ func ExampleNode_Patch() {
 		panic(err)
 	}
 	fmt.Printf("%x\n", modified)
-	// a263616765f94e40646e616d65644a616e65
+	// a2636167651819646e616d65644a616e65
 	modified, err = node.MarshalJSON()
 	if err != nil {
 		panic(err)
@@ -89,10 +89,10 @@ func ExampleNode_Patch() {
 	// {"age":25,"name":"Jane"}
 
 	// Output:
-	// a363616765f94e00646e616d65644a6f686e66686569676874fb4009ae147ae147ae
-	// a263616765f94e00646e616d65644a616e65
+	// a3636167651818646e616d65644a6f686e66686569676874fb4009ae147ae147ae
+	// a2636167651818646e616d65644a616e65
 	// {"age":24,"name":"Jane"}
-	// a263616765f94e40646e616d65644a616e65
+	// a2636167651819646e616d65644a616e65
 	// {"age":25,"name":"Jane"}
 }
 
