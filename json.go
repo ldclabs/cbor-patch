@@ -11,7 +11,6 @@ import (
 	"math"
 	"math/big"
 	"strconv"
-	"strings"
 )
 
 // FromJSON converts a JSON-encoded data to a CBOR-encoded data with a optional value as struct container.
@@ -156,43 +155,70 @@ func readJSONValue(dec *json.Decoder) (interface{}, error) {
 	}
 }
 
-func convertNumber(n json.Number) (interface{}, error) {
-	switch s := string(n); {
-	case strings.IndexRune(s, '.') != -1:
-		return n.Float64()
-	default:
-		neg := s[0] == '-'
-		if neg {
-			s = s[1:]
+func maybeFloat(s string) (mf, mbf bool) {
+	for _, r := range s {
+		switch r {
+		case '.':
+			mf = true
+		case 'e', 'E':
+			mf = true
+			mbf = true
+			return
 		}
+	}
+	return
+}
 
-		u, err := strconv.ParseUint(s, 10, 64)
-		if err == nil {
-			switch {
-			case !neg:
-				return u, nil
+func convertNumber(n json.Number) (interface{}, error) {
+	s := string(n)
+	mf, mbf := maybeFloat(s)
+	if mbf {
+		if bf, ok := new(big.Float).SetString(s); ok && bf.IsInt() {
+			switch i, _ := bf.Int(nil); {
+			case i.IsUint64():
+				return i.Uint64(), nil
 
-			case u <= math.MaxInt64+1:
-				return -int64(u), nil
-
-			default:
-				i := new(big.Int).SetUint64(u)
-				return i.Neg(i), nil
+			case i.IsInt64():
+				return i.Int64(), nil
 			}
 		}
-
-		if errors.Unwrap(err) != strconv.ErrRange {
-			return nil, err
-		}
-
-		i := new(big.Int)
-		if _, ok := i.SetString(s, 10); !ok {
-			return nil, fmt.Errorf("invalid number %q", string(n))
-		}
-
-		if neg {
-			i.Neg(i)
-		}
-		return i, nil
 	}
+
+	if mf {
+		return n.Float64()
+	}
+
+	neg := s[0] == '-'
+	if neg {
+		s = s[1:]
+	}
+
+	u, err := strconv.ParseUint(s, 10, 64)
+	if err == nil {
+		switch {
+		case !neg:
+			return u, nil
+
+		case u <= math.MaxInt64+1:
+			return -int64(u), nil
+
+		default:
+			i := new(big.Int).SetUint64(u)
+			return i.Neg(i), nil
+		}
+	}
+
+	if errors.Unwrap(err) != strconv.ErrRange {
+		return nil, err
+	}
+
+	i := new(big.Int)
+	if _, ok := i.SetString(s, 10); !ok {
+		return nil, fmt.Errorf("invalid number %q", string(n))
+	}
+
+	if neg {
+		i.Neg(i)
+	}
+	return i, nil
 }
