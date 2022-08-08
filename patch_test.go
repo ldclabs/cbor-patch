@@ -45,6 +45,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func reformatJSON(j string) string {
@@ -1079,5 +1081,38 @@ func TestEquality(t *testing.T) {
 				t.Errorf("Expected Equal(%s, %s) to return %t, but got %t", tc.b, tc.a, tc.equal, got)
 			}
 		})
+	}
+}
+
+func TestPatchKey(t *testing.T) {
+	assert := assert.New(t)
+
+	type patchKeyCase struct {
+		key    interface{}
+		result string
+	}
+
+	testCases := []*patchKeyCase{
+		{"", ""},
+		{"~~", "~0~0"},
+		{"//", "~1~1"},
+		{"someKey", "someKey"},
+		{"/someKey~", "~1someKey~0"},
+		{"~some/Key", "~0some~1Key"},
+		{true, "~xf5"},
+		{false, "~xf4"},
+		{uint64(1), "~x01"},
+		{uint64(999999999999999), "~x1b00038d7ea4c67fff"},
+		{int64(-1), "~x20"},
+		{int64(-999999999999999), "~x3b00038d7ea4c67ffe"},
+		{[]byte{0, 0, 0, 0}, "~x4400000000"},
+		{string([]byte{0, 0, 0, 0}), "~x6400000000"},
+		{[]byte{255, 255, 255, 255}, "~x44ffffffff"},
+		{string([]byte{255, 255, 255, 255}), "~x64ffffffff"},
+	}
+
+	for _, tc := range testCases {
+		assert.Equal(tc.result, EncodePatchKey(tc.key))
+		assert.Equal(tc.key, DecodePatchKey(tc.result))
 	}
 }

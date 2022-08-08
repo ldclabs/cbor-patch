@@ -59,23 +59,39 @@ var (
 )
 
 var (
-	encMode, _    = cbor.CanonicalEncOptions().EncMode()
+	decMode, _ = cbor.DecOptions{
+		DupMapKey:   cbor.DupMapKeyQuiet,
+		IndefLength: cbor.IndefLengthForbidden,
+		UTF8:        cbor.UTF8DecodeInvalid,
+	}.DecMode()
+
+	encMode, _ = cbor.EncOptions{
+		Sort:          cbor.SortLengthFirst,
+		Time:          cbor.TimeRFC3339Nano,
+		ShortestFloat: cbor.ShortestFloat16,
+		NaNConvert:    cbor.NaNConvert7e00,
+		InfConvert:    cbor.InfConvertFloat16,
+		IndefLength:   cbor.IndefLengthForbidden,
+		BigIntConvert: cbor.BigIntConvertNone,
+	}.EncMode()
+
+	cborUnmarshal = decMode.Unmarshal
+	cborValid     = decMode.Valid
 	cborMarshal   = encMode.Marshal
-	cborUnmarshal = cbor.Unmarshal
 )
 
 // SetCBOR set the underlying global CBOR Marshal and Unmarshal functions.
 // The default is cbor.CanonicalEncOptions's Marshal and default cbor.Unmarshal.
 //
-//  func init() {
-//  	var EncMode, _ = cbor.CanonicalEncOptions().EncMode()
-//  	var DecMode, _ = cbor.DecOptions{
-//  		DupMapKey:   cbor.DupMapKeyQuiet,
-//  		IndefLength: cbor.IndefLengthForbidden,
-//  	}.DecMode()
+//	func init() {
+//		var EncMode, _ = cbor.CanonicalEncOptions().EncMode()
+//		var DecMode, _ = cbor.DecOptions{
+//			DupMapKey:   cbor.DupMapKeyQuiet,
+//			IndefLength: cbor.IndefLengthForbidden,
+//		}.DecMode()
 //
-//  	cborpatch.SetCBOR(EncMode.Marshal, DecMode.Unmarshal)
-//  }
+//		cborpatch.SetCBOR(EncMode.Marshal, DecMode.Unmarshal)
+//	}
 func SetCBOR(
 	marshal func(v interface{}) ([]byte, error),
 	unmarshal func(data []byte, v interface{}) error,
@@ -122,4 +138,12 @@ func ReadCBORType(data []byte) CBORType {
 	default:
 		return CBORType(data[0] & 0xe0)
 	}
+}
+
+func MustMarshal(val interface{}) []byte {
+	data, err := cborMarshal(val)
+	if err != nil {
+		panic(err)
+	}
+	return data
 }

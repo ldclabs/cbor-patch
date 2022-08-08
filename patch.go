@@ -292,7 +292,7 @@ func (d *partialDoc) MarshalCBOR() ([]byte, error) {
 func (d *partialDoc) MarshalJSON() ([]byte, error) {
 	obj := make(map[string]*Node, len(d.obj))
 	for k := range d.obj {
-		obj[encodePatchKey(k)] = d.obj[k]
+		obj[EncodePatchKey(k)] = d.obj[k]
 	}
 	return json.Marshal(obj)
 }
@@ -313,7 +313,7 @@ func (d *partialDoc) add(key interface{}, val *Node, options *Options) error {
 func (d *partialDoc) get(key interface{}, options *Options) (*Node, error) {
 	v, ok := d.obj[key]
 	if !ok {
-		return nil, fmt.Errorf("unable to get nonexistent key %q, %v", encodePatchKey(key), ErrMissing)
+		return nil, fmt.Errorf("unable to get nonexistent key %q, %v", EncodePatchKey(key), ErrMissing)
 	}
 	if v == nil {
 		v = NewNode(rawCBORNull)
@@ -327,7 +327,7 @@ func (d *partialDoc) remove(key interface{}, options *Options) error {
 		if options.AllowMissingPathOnRemove {
 			return nil
 		}
-		return fmt.Errorf("unable to remove nonexistent key %q, %v", encodePatchKey(key), ErrMissing)
+		return fmt.Errorf("unable to remove nonexistent key %q, %v", EncodePatchKey(key), ErrMissing)
 	}
 	delete(d.obj, key)
 	return nil
@@ -734,7 +734,7 @@ func findObject(pd *container, path string, options *Options) (container, interf
 	key := split[len(split)-1]
 
 	for _, part := range parts {
-		next, ok := doc.get(decodePatchKey(part), options)
+		next, ok := doc.get(DecodePatchKey(part), options)
 		if next == nil || ok != nil {
 			return nil, ""
 		}
@@ -743,7 +743,7 @@ func findObject(pd *container, path string, options *Options) (container, interf
 			return nil, ""
 		}
 	}
-	return doc, decodePatchKey(key)
+	return doc, DecodePatchKey(key)
 }
 
 // Given a document and a path to a key, walk the path and create all missing elements
@@ -766,7 +766,7 @@ func ensurePathExists(pd *container, path string, options *Options) error {
 			return nil
 		}
 
-		target, ok := doc.get(decodePatchKey(part), options)
+		target, ok := doc.get(DecodePatchKey(part), options)
 		if target == nil || ok != nil {
 			// If the current container is an array which has fewer elements than our target index,
 			// pad the current container with nulls.
@@ -860,7 +860,7 @@ func decodeArrayIdx(key interface{}) (int, error) {
 // From http://tools.ietf.org/html/rfc6901#section-4 :
 //
 // Evaluation of each reference token begins by decoding any escaped
-// character sequence.  This is performed by first transforming any
+// character sequence. This is performed by first transforming any
 // occurrence of the sequence '~1' to '/', and then transforming any
 // occurrence of the sequence '~0' to '~'.
 var (
@@ -868,26 +868,48 @@ var (
 	rfc6901Encoder = strings.NewReplacer("/", "~1", "~", "~0")
 )
 
-func decodePatchKey(k string) interface{} {
-	if strings.HasPrefix(k, "~x") {
-		if data, err := hex.DecodeString(k[2:]); err == nil {
+// DecodePatchKey decodes a interface{} key from a RFC6901 compliant string.
+// The key with a prefix of '~x' will be decoded to a interface with hex decode and CBOR Unmarshal.
+// Otherwise it will transform any '~1' to '/',
+// and then transform any '~0' to '~'.
+// See http://tools.ietf.org/html/rfc6901#section-4 for details.
+func DecodePatchKey(key string) interface{} {
+	if strings.HasPrefix(key, "~x") {
+		if data, err := hex.DecodeString(key[2:]); err == nil {
 			var v interface{}
 			if err = cborUnmarshal(data, &v); err == nil {
 				return v
 			}
 		}
+		return key // returns the original key if unable to decode "~x"
 	}
-	return rfc6901Decoder.Replace(k)
+
+	return rfc6901Decoder.Replace(key)
 }
 
-func encodePatchKey(k interface{}) string {
-	if s, ok := k.(string); ok {
-		return rfc6901Encoder.Replace(s)
+// EncodePatchKey encodes a interface{} key to a RFC6901 compliant string.
+// If the key is a valid utf8 string, it will transform any '/' to '~1',
+// and then transform any '~' to '~0'.
+// Otherwise it will encode the key with CBOR Marshal and hex encode and prefix it with '~x'.
+func EncodePatchKey(key interface{}) string {
+	switch v := key.(type) {
+	case string:
+		if IsSafeJSONString(v) {
+			return rfc6901Encoder.Replace(v)
+		}
+	case []byte:
+		if cborValid(v) == nil {
+			return "~x" + hex.EncodeToString(v)
+		}
 	}
-	if data, err := cborMarshal(k); err == nil {
+
+	data, err := cborMarshal(key)
+	if err == nil {
 		return "~x" + hex.EncodeToString(data)
 	}
-	return rfc6901Encoder.Replace(fmt.Sprintf("%v", k))
+
+	// we should not reach here
+	return fmt.Sprintf("EncodePatchKey(%v) error: %v", key, err)
 }
 
 // AccumulatedCopySizeError is an error type returned when the accumulated size

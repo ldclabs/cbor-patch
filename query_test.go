@@ -4,8 +4,9 @@
 package cborpatch
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type GetValueCase struct {
@@ -93,25 +94,46 @@ var GetValueCases = []GetValueCase{
 }
 
 func TestGetValueByPath(t *testing.T) {
+	assert := assert.New(t)
+
 	for _, c := range GetValueCases {
 		res, err := GetValueByPath(MustFromJSON(c.doc), c.path)
-		if c.err != "" {
-			if err == nil || !strings.Contains(err.Error(), c.err) {
-				t.Errorf("Testing failed when it should have error for [%s]: expected [%s], got [%v]",
-					string(c.doc), c.err, err)
-			}
-		} else if err != nil {
-			t.Errorf("Testing failed when it should have passed for [%s]: %v", string(c.doc), err)
-		} else {
-			if MustToJSON(res) != string(c.result) {
-				t.Errorf("Testing failed for [%s]: expected [%s], got [%s]", string(c.doc), string(c.result), string(res))
-			}
+		switch {
+		case c.err != "":
+			assert.ErrorContains(err, c.err,
+				"Testing failed when it should have error for [%s]: expected [%s], got [%v]",
+				string(c.doc), c.err, err)
+		case err != nil:
+			assert.NoError(err,
+				"Testing failed when it should have passed for [%s]: %v",
+				string(c.doc), err)
+		default:
+			assert.Equal(string(c.result), MustToJSON(res),
+				"Testing failed for [%s]: expected [%s], got [%s]",
+				string(c.doc), string(c.result), string(res))
 		}
 	}
 }
 
 func TestGetValueByCBORPath(t *testing.T) {
-	// TODO
+	assert := assert.New(t)
+
+	obj := map[interface{}]interface{}{
+		"baz": "qux",
+		1:     1,
+		-1:    -1,
+		true:  false,
+		// [4]byte{0, 0, 0, 0}: []byte{0, 0, 0, 0},
+		string([]byte{0, 0, 0, 0}): map[string]string{
+			string([]byte{0, 0, 0, 0}): string([]byte{0, 0, 0, 0}),
+		},
+	}
+	data, err := cborMarshal(obj)
+	assert.NoError(err)
+
+	val, err := GetValueByPath(data, "/baz")
+	assert.NoError(err)
+	assert.Equal(MustMarshal("qux"), val)
 }
 
 type FindChildrenCase struct {
@@ -363,25 +385,26 @@ var FindChildrenCases = []FindChildrenCase{
 }
 
 func TestFindChildren(t *testing.T) {
+	assert := assert.New(t)
+
 	for i, c := range FindChildrenCases {
 		res, err := NewNode(c.doc).FindChildren(c.tests, nil)
+		assert.NoError(err,
+			"Testing failed when case %d should have passed: %s",
+			i, err)
 
-		if err != nil {
-			t.Errorf("Testing failed when case %d should have passed: %s", i, err)
-		} else {
-			if len(res) != len(c.result) {
-				t.Errorf("Testing failed for case %d, %v: expected %d, got %d",
-					i, MustToJSON(c.doc), len(c.result), len(res))
-			}
-			for j := range res {
-				if c.result[j].Path != res[j].Path {
-					t.Errorf("Testing failed for case %d, %v: expected path [%s], got [%s]",
-						i, string(c.doc), c.result[j].Path, res[j].Path)
-				} else if !Equal(c.result[j].Value, res[j].Value) {
-					t.Errorf("Testing failed for case %d, %v: expected [%s], got [%s]",
-						i, MustToJSON(c.doc), MustToJSON(c.result[j].Value), MustToJSON(res[j].Value))
-				}
-			}
+		assert.Equal(len(c.result), len(res),
+			"Testing failed for case %d, %v: expected %d, got %d",
+			i, MustToJSON(c.doc), len(c.result), len(res))
+
+		for j := range res {
+			assert.Equal(c.result[j].Path, res[j].Path,
+				"Testing failed for case %d, %v: expected path [%s], got [%s]",
+				i, string(c.doc), c.result[j].Path, res[j].Path)
+
+			assert.Equal(c.result[j].Value, res[j].Value,
+				"Testing failed for case %d, %v: expected [%s], got [%s]",
+				i, MustToJSON(c.doc), MustToJSON(c.result[j].Value), MustToJSON(res[j].Value))
 		}
 	}
 }
