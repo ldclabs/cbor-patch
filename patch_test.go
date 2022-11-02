@@ -1099,16 +1099,12 @@ func TestPatchKey(t *testing.T) {
 		{"someKey", "someKey"},
 		{"/someKey~", "~1someKey~0"},
 		{"~some/Key", "~0some~1Key"},
-		{true, "~xf5"},
-		{false, "~xf4"},
 		{uint64(1), "~x01"},
 		{uint64(999999999999999), "~x1b00038d7ea4c67fff"},
 		{int64(-1), "~x20"},
 		{int64(-999999999999999), "~x3b00038d7ea4c67ffe"},
-		{[]byte{0, 0, 0, 0}, "~x4400000000"},
-		{string([]byte{0, 0, 0, 0}), "~x6400000000"},
-		{[]byte{255, 255, 255, 255}, "~x44ffffffff"},
-		{string([]byte{255, 255, 255, 255}), "~x64ffffffff"},
+		{string([]byte{0, 0, 0, 0}), "\x00\x00\x00\x00"},
+		{string([]byte{255, 255, 255, 255}), "\xff\xff\xff\xff"},
 	}
 
 	for _, tc := range testCases {

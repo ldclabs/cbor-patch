@@ -876,12 +876,13 @@ var (
 func DecodePatchKey(key string) interface{} {
 	if strings.HasPrefix(key, "~x") {
 		if data, err := hex.DecodeString(key[2:]); err == nil {
-			var v interface{}
-			if err = cborUnmarshal(data, &v); err == nil {
-				return v
+			if ReadCBORType(data).ValidKey() {
+				var v interface{}
+				if err = cborUnmarshal(data, &v); err == nil {
+					return v
+				}
 			}
 		}
-		return key // returns the original key if unable to decode "~x"
 	}
 
 	return rfc6901Decoder.Replace(key)
@@ -892,18 +893,15 @@ func DecodePatchKey(key string) interface{} {
 // and then transform any '~' to '~0'.
 // Otherwise it will encode the key with CBOR Marshal and hex encode and prefix it with '~x'.
 func EncodePatchKey(key interface{}) string {
-	switch v := key.(type) {
-	case string:
-		if IsSafeJSONString(v) {
-			return rfc6901Encoder.Replace(v)
-		}
-	case []byte:
-		if cborValid(v) == nil {
-			return "~x" + hex.EncodeToString(v)
-		}
+	if str, ok := key.(string); ok {
+		return rfc6901Encoder.Replace(str)
 	}
 
 	data, err := cborMarshal(key)
+	if t := ReadCBORType(data); !t.ValidKey() && err == nil {
+		err = fmt.Errorf("%q can't be key", t.String())
+	}
+
 	if err == nil {
 		return "~x" + hex.EncodeToString(data)
 	}

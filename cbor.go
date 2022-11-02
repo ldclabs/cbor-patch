@@ -130,6 +130,15 @@ func (t CBORType) String() string {
 	}
 }
 
+func (t CBORType) ValidKey() bool {
+	switch t {
+	case CBORTypePositiveInt, CBORTypeNegativeInt, CBORTypeTextString:
+		return true
+	default:
+		return false
+	}
+}
+
 // ReadCBORType returns the type of a raw encoded CBOR value.
 func ReadCBORType(data []byte) CBORType {
 	switch {
