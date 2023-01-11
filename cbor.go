@@ -60,19 +60,13 @@ var (
 
 var (
 	decMode, _ = cbor.DecOptions{
-		DupMapKey:   cbor.DupMapKeyQuiet,
+		DupMapKey:   cbor.DupMapKeyEnforcedAPF,
 		IndefLength: cbor.IndefLengthForbidden,
-		UTF8:        cbor.UTF8DecodeInvalid,
 	}.DecMode()
 
 	encMode, _ = cbor.EncOptions{
-		Sort:          cbor.SortLengthFirst,
-		Time:          cbor.TimeRFC3339Nano,
-		ShortestFloat: cbor.ShortestFloat16,
-		NaNConvert:    cbor.NaNConvert7e00,
-		InfConvert:    cbor.InfConvertFloat16,
-		IndefLength:   cbor.IndefLengthForbidden,
-		BigIntConvert: cbor.BigIntConvertNone,
+		Sort:        cbor.SortBytewiseLexical,
+		IndefLength: cbor.IndefLengthForbidden,
 	}.EncMode()
 
 	cborUnmarshal = decMode.Unmarshal
@@ -81,7 +75,6 @@ var (
 )
 
 // SetCBOR set the underlying global CBOR Marshal and Unmarshal functions.
-// The default is cbor.CanonicalEncOptions's Marshal and default cbor.Unmarshal.
 //
 //	func init() {
 //		var EncMode, _ = cbor.CanonicalEncOptions().EncMode()
@@ -93,8 +86,8 @@ var (
 //		cborpatch.SetCBOR(EncMode.Marshal, DecMode.Unmarshal)
 //	}
 func SetCBOR(
-	marshal func(v interface{}) ([]byte, error),
-	unmarshal func(data []byte, v interface{}) error,
+	marshal func(v any) ([]byte, error),
+	unmarshal func(data []byte, v any) error,
 ) {
 	cborMarshal = marshal
 	cborUnmarshal = unmarshal
@@ -102,6 +95,8 @@ func SetCBOR(
 
 // RawMessage is a raw encoded CBOR value.
 type RawMessage = cbor.RawMessage
+
+type ByteString = cbor.ByteString
 
 // CBORType is the type of a raw encoded CBOR value.
 type CBORType uint8
@@ -130,15 +125,6 @@ func (t CBORType) String() string {
 	}
 }
 
-func (t CBORType) ValidKey() bool {
-	switch t {
-	case CBORTypePositiveInt, CBORTypeNegativeInt, CBORTypeTextString:
-		return true
-	default:
-		return false
-	}
-}
-
 // ReadCBORType returns the type of a raw encoded CBOR value.
 func ReadCBORType(data []byte) CBORType {
 	switch {
@@ -149,7 +135,7 @@ func ReadCBORType(data []byte) CBORType {
 	}
 }
 
-func MustMarshal(val interface{}) []byte {
+func MustMarshal(val any) []byte {
 	data, err := cborMarshal(val)
 	if err != nil {
 		panic(err)

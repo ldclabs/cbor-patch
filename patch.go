@@ -39,7 +39,7 @@ package cborpatch
 
 import (
 	"bytes"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -154,11 +154,12 @@ type Node struct {
 // NewNode returns a new Node with the given raw encoded CBOR document.
 // A nil or empty raw document is equal to CBOR null.
 func NewNode(doc RawMessage) *Node {
+	var raw RawMessage
 	if len(doc) == 0 {
-		doc = rawCBORNull
+		raw = copyBytes(rawCBORNull)
+	} else {
+		raw = copyBytes(doc)
 	}
-	raw := make(RawMessage, len(doc))
-	copy(raw, doc)
 	return &Node{raw: &raw, ty: CBORTypePrimitives}
 }
 
@@ -167,7 +168,7 @@ func (n *Node) String() string {
 	if n.raw == nil || isNull(*n.raw) {
 		return "<nil>"
 	}
-	var v interface{}
+	var v any
 	if err := cborUnmarshal(*n.raw, &v); err != nil {
 		return fmt.Sprintf("<error: %v>", err)
 	}
@@ -222,6 +223,10 @@ func (n *Node) Patch(p Patch, options *Options) error {
 
 // MarshalCBOR implements the cbor.Marshaler interface.
 func (n *Node) MarshalCBOR() ([]byte, error) {
+	if n == nil {
+		return copyBytes(rawCBORNull), nil
+	}
+
 	switch n.which {
 	case eRaw, eOther:
 		return cborMarshal(n.raw)
@@ -236,14 +241,17 @@ func (n *Node) MarshalCBOR() ([]byte, error) {
 
 // MarshalJSON implements the json.Marshaler interface.
 func (n *Node) MarshalJSON() ([]byte, error) {
-	n.intoContainer()
+	if n == nil {
+		return []byte("null"), nil
+	}
 
+	n.intoContainer()
 	switch n.which {
 	case eOther:
 		if n.raw == nil {
 			return json.Marshal(nil)
 		}
-		var val interface{}
+		var val any
 		if err := cborUnmarshal(*n.raw, &val); err != nil {
 			return nil, err
 		}
@@ -260,12 +268,17 @@ func (n *Node) MarshalJSON() ([]byte, error) {
 // UnmarshalCBOR implements the cbor.Unmarshaler interface.
 func (n *Node) UnmarshalCBOR(data []byte) error {
 	if n == nil {
-		return errors.New("unexpected node, nil pointer")
+		return errors.New("nil node")
 	}
+	if err := cborValid(data); err != nil {
+		return err
+	}
+
 	if n.raw == nil {
 		raw := make(RawMessage, len(data))
 		n.raw = &raw
 	}
+
 	*n.raw = append((*n.raw)[0:0], data...)
 	n.which = eRaw
 	n.ty = CBORTypePrimitives
@@ -273,14 +286,15 @@ func (n *Node) UnmarshalCBOR(data []byte) error {
 }
 
 type container interface {
-	get(key interface{}, options *Options) (*Node, error)
-	set(key interface{}, val *Node, options *Options) error
-	add(key interface{}, val *Node, options *Options) error
-	remove(key interface{}, options *Options) error
+	get(key rawKey, options *Options) (*Node, error)
+	set(key rawKey, val *Node, options *Options) error
+	add(key rawKey, val *Node, options *Options) error
+	remove(key rawKey, options *Options) error
+	len() int
 }
 
 type partialDoc struct {
-	obj map[interface{}]*Node
+	obj map[rawKey]*Node
 }
 
 type partialArray []*Node
@@ -292,7 +306,7 @@ func (d *partialDoc) MarshalCBOR() ([]byte, error) {
 func (d *partialDoc) MarshalJSON() ([]byte, error) {
 	obj := make(map[string]*Node, len(d.obj))
 	for k := range d.obj {
-		obj[EncodePatchKey(k)] = d.obj[k]
+		obj[encodePatchKey(k)] = d.obj[k]
 	}
 	return json.Marshal(obj)
 }
@@ -301,41 +315,45 @@ func (d *partialDoc) UnmarshalCBOR(data []byte) error {
 	return cborUnmarshal(data, &d.obj)
 }
 
-func (d *partialDoc) set(key interface{}, val *Node, options *Options) error {
+func (d *partialDoc) set(key rawKey, val *Node, options *Options) error {
 	d.obj[key] = val
 	return nil
 }
 
-func (d *partialDoc) add(key interface{}, val *Node, options *Options) error {
+func (d *partialDoc) add(key rawKey, val *Node, options *Options) error {
 	return d.set(key, val, options)
 }
 
-func (d *partialDoc) get(key interface{}, options *Options) (*Node, error) {
+func (d *partialDoc) get(key rawKey, options *Options) (*Node, error) {
 	v, ok := d.obj[key]
 	if !ok {
-		return nil, fmt.Errorf("unable to get nonexistent key %q, %v", EncodePatchKey(key), ErrMissing)
+		return nil, fmt.Errorf("unable to get nonexistent key %q, %v", encodePatchKey(key), ErrMissing)
 	}
 	if v == nil {
-		v = NewNode(rawCBORNull)
+		v = NewNode(nil)
 	}
 	return v, nil
 }
 
-func (d *partialDoc) remove(key interface{}, options *Options) error {
+func (d *partialDoc) remove(key rawKey, options *Options) error {
 	_, ok := d.obj[key]
 	if !ok {
 		if options.AllowMissingPathOnRemove {
 			return nil
 		}
-		return fmt.Errorf("unable to remove nonexistent key %q, %v", EncodePatchKey(key), ErrMissing)
+		return fmt.Errorf("unable to remove nonexistent key %q, %v", encodePatchKey(key), ErrMissing)
 	}
 	delete(d.obj, key)
 	return nil
 }
 
+func (d *partialDoc) len() int {
+	return len(d.obj)
+}
+
 // set should only be used to implement the "replace" operation, so "key" must
 // be an already existing index in "d".
-func (d *partialArray) set(key interface{}, val *Node, options *Options) error {
+func (d *partialArray) set(key rawKey, val *Node, options *Options) error {
 	idx, err := decodeArrayIdx(key)
 	if err != nil {
 		return err
@@ -344,7 +362,7 @@ func (d *partialArray) set(key interface{}, val *Node, options *Options) error {
 	sz := len(*d)
 	if idx < 0 {
 		if !options.SupportNegativeIndices || idx < -sz {
-			return fmt.Errorf("unable to access invalid index %s, %v", key, ErrInvalidIndex)
+			return fmt.Errorf("unable to access invalid index %d, %v", idx, ErrInvalidIndex)
 		}
 		idx += sz
 	}
@@ -353,8 +371,9 @@ func (d *partialArray) set(key interface{}, val *Node, options *Options) error {
 	return nil
 }
 
-func (d *partialArray) add(key interface{}, val *Node, options *Options) error {
-	if k, ok := key.(string); ok && k == "-" {
+var minus = rawKey([]byte{0x61, 0x2d}) // "-"
+func (d *partialArray) add(key rawKey, val *Node, options *Options) error {
+	if key == minus {
 		*d = append(*d, val)
 		return nil
 	}
@@ -366,12 +385,12 @@ func (d *partialArray) add(key interface{}, val *Node, options *Options) error {
 
 	sz := len(*d) + 1
 	if idx >= sz {
-		return fmt.Errorf("unable to access invalid index %s, %v", key, ErrInvalidIndex)
+		return fmt.Errorf("unable to access invalid index %d, %v", idx, ErrInvalidIndex)
 	}
 
 	if idx < 0 {
 		if !options.SupportNegativeIndices || idx < -sz {
-			return fmt.Errorf("unable to access invalid index %s, %v", key, ErrInvalidIndex)
+			return fmt.Errorf("unable to access invalid index %d, %v", idx, ErrInvalidIndex)
 		}
 		idx += sz
 	}
@@ -386,7 +405,7 @@ func (d *partialArray) add(key interface{}, val *Node, options *Options) error {
 	return nil
 }
 
-func (d *partialArray) get(key interface{}, options *Options) (*Node, error) {
+func (d *partialArray) get(key rawKey, options *Options) (*Node, error) {
 	idx, err := decodeArrayIdx(key)
 	if err != nil {
 		return nil, err
@@ -395,22 +414,22 @@ func (d *partialArray) get(key interface{}, options *Options) (*Node, error) {
 	sz := len(*d)
 	if idx < 0 {
 		if !options.SupportNegativeIndices || idx < -sz {
-			return nil, fmt.Errorf("unable to access invalid index %s, %v", key, ErrInvalidIndex)
+			return nil, fmt.Errorf("unable to access invalid index %d, %v", idx, ErrInvalidIndex)
 		}
 		idx += sz
 	}
 
 	if idx >= sz {
-		return nil, fmt.Errorf("unable to access invalid index %s, %v", key, ErrInvalidIndex)
+		return nil, fmt.Errorf("unable to access invalid index %d, %v", idx, ErrInvalidIndex)
 	}
 	v := (*d)[idx]
 	if v == nil {
-		v = NewNode(rawCBORNull)
+		v = NewNode(nil)
 	}
 	return v, nil
 }
 
-func (d *partialArray) remove(key interface{}, options *Options) error {
+func (d *partialArray) remove(key rawKey, options *Options) error {
 	idx, err := decodeArrayIdx(key)
 	if err != nil {
 		return err
@@ -421,18 +440,18 @@ func (d *partialArray) remove(key interface{}, options *Options) error {
 		if options.AllowMissingPathOnRemove {
 			return nil
 		}
-		return fmt.Errorf("unable to access invalid index %s, %v", key, ErrInvalidIndex)
+		return fmt.Errorf("unable to access invalid index %d, %v", idx, ErrInvalidIndex)
 	}
 
 	if idx < 0 {
 		if !options.SupportNegativeIndices {
-			return fmt.Errorf("unable to access invalid index %s, %v", key, ErrInvalidIndex)
+			return fmt.Errorf("unable to access invalid index %d, %v", idx, ErrInvalidIndex)
 		}
 		if idx < -sz {
 			if options.AllowMissingPathOnRemove {
 				return nil
 			}
-			return fmt.Errorf("unable to access invalid index %s, %v", key, ErrInvalidIndex)
+			return fmt.Errorf("unable to access invalid index %d, %v", idx, ErrInvalidIndex)
 		}
 		idx += sz
 	}
@@ -444,6 +463,10 @@ func (d *partialArray) remove(key interface{}, options *Options) error {
 
 	*d = ary
 	return nil
+}
+
+func (d *partialArray) len() int {
+	return len(*d)
 }
 
 func (n *Node) intoContainer() (container, error) {
@@ -480,14 +503,30 @@ func (n *Node) intoContainer() (container, error) {
 }
 
 func (n *Node) isNull() bool {
-	if n.raw == nil {
+	switch {
+	case n == nil:
+		return true
+
+	case n.which == eDoc || n.which == eAry:
+		return false
+
+	case n.raw == nil:
 		return true
 	}
+
 	return isNull(*n.raw)
 }
 
-// Equal indicates if 2 CBOR Nodes have the same structural equality.
+// Equal indicates if two CBOR Nodes have the same structural equality.
 func (n *Node) Equal(o *Node) bool {
+	if n.isNull() {
+		return o.isNull()
+	}
+
+	if o.isNull() {
+		return n.isNull()
+	}
+
 	n.intoContainer()
 	if n.which == eOther {
 		if o.which == eDoc || o.which == eAry {
@@ -508,21 +547,7 @@ func (n *Node) Equal(o *Node) bool {
 		}
 
 		for k, v := range n.doc.obj {
-			ov, ok := o.doc.obj[k]
-
-			if !ok {
-				return false
-			}
-
-			if (v == nil) != (ov == nil) {
-				return false
-			}
-
-			if v == nil && ov == nil {
-				continue
-			}
-
-			if !v.Equal(ov) {
+			if ov, ok := o.doc.obj[k]; !ok || !v.Equal(ov) {
 				return false
 			}
 		}
@@ -644,6 +669,7 @@ func (p Patch) test(doc *container, op Operation, options *Options) error {
 		case *partialDoc:
 			self.doc = sv
 			self.which = eDoc
+
 		case *partialArray:
 			self.ary = *sv
 			self.which = eAry
@@ -722,7 +748,7 @@ func (p Patch) copy(doc *container, op Operation, accumulatedCopySize *int64, op
 	return nil
 }
 
-func findObject(pd *container, path string, options *Options) (container, interface{}) {
+func findObject(pd *container, path string, options *Options) (container, rawKey) {
 	doc := *pd
 
 	split := strings.Split(path, "/")
@@ -734,7 +760,7 @@ func findObject(pd *container, path string, options *Options) (container, interf
 	key := split[len(split)-1]
 
 	for _, part := range parts {
-		next, ok := doc.get(DecodePatchKey(part), options)
+		next, ok := doc.get(decodePatchKey(part), options)
 		if next == nil || ok != nil {
 			return nil, ""
 		}
@@ -743,7 +769,7 @@ func findObject(pd *container, path string, options *Options) (container, interf
 			return nil, ""
 		}
 	}
-	return doc, DecodePatchKey(key)
+	return doc, decodePatchKey(key)
 }
 
 // Given a document and a path to a key, walk the path and create all missing elements
@@ -766,7 +792,8 @@ func ensurePathExists(pd *container, path string, options *Options) error {
 			return nil
 		}
 
-		target, ok := doc.get(DecodePatchKey(part), options)
+		key := decodePatchKey(part)
+		target, ok := doc.get(key, options)
 		if target == nil || ok != nil {
 			// If the current container is an array which has fewer elements than our target index,
 			// pad the current container with nulls.
@@ -776,7 +803,9 @@ func ensurePathExists(pd *container, path string, options *Options) error {
 				if ok && arrIndex >= len(*pa)+1 {
 					// Pad the array with null values up to the required index.
 					for i := len(*pa); i <= arrIndex-1; i++ {
-						doc.add(strconv.Itoa(i), NewNode(rawCBORNull), options)
+						if err = doc.add(encodeArrayIdx(i), NewNode(nil), options); err != nil {
+							return err
+						}
 					}
 				}
 			}
@@ -786,12 +815,12 @@ func ensurePathExists(pd *container, path string, options *Options) error {
 			if arrIndex, err = strconv.Atoi(parts[pi+1]); err == nil || parts[pi+1] == "-" {
 				if arrIndex < 0 {
 					if !options.SupportNegativeIndices {
-						return fmt.Errorf("unable to ensure path for invalid index %d, %v",
+						return fmt.Errorf("unable to ensure path for invalid index 9 %d, %v",
 							arrIndex, ErrInvalidIndex)
 					}
 
 					if arrIndex < -1 {
-						return fmt.Errorf("unable to ensure path for invalid index %d, %v",
+						return fmt.Errorf("unable to ensure path for invalid index 10 %d, %v",
 							arrIndex, ErrInvalidIndex)
 					}
 
@@ -799,18 +828,27 @@ func ensurePathExists(pd *container, path string, options *Options) error {
 				}
 
 				node := NewNode(rawCBORArray)
-				doc.add(part, node, options)
-				doc, _ = node.intoContainer()
+				if err = doc.add(key, node, options); err != nil {
+					return err
+				}
+				if doc, err = node.intoContainer(); err != nil {
+					return err
+				}
 
 				// Pad the new array with null values up to the required index.
 				for i := 0; i < arrIndex; i++ {
-					doc.add(strconv.Itoa(i), NewNode(rawCBORNull), options)
+					if err = doc.add(encodeArrayIdx(i), NewNode(nil), options); err != nil {
+						return err
+					}
 				}
 			} else {
 				node := NewNode(rawCBORMap)
-
-				doc.add(part, node, options)
-				doc, _ = node.intoContainer()
+				if err = doc.add(key, node, options); err != nil {
+					return err
+				}
+				if doc, err = node.intoContainer(); err != nil {
+					return err
+				}
 			}
 		} else {
 			doc, err = target.intoContainer()
@@ -842,19 +880,22 @@ func isNull(data RawMessage) bool {
 	return false
 }
 
-func decodeArrayIdx(key interface{}) (int, error) {
-	switch v := key.(type) {
-	case int:
-		return v, nil
-	case int64:
-		return int(v), nil
-	case uint64:
-		return int(v), nil
-	case string:
-		return strconv.Atoi(v)
-	default:
-		return -1, fmt.Errorf("%v was not a proper array index, type %T", v, v)
+func decodeArrayIdx(key rawKey) (int, error) {
+	data := []byte(key)
+	var str string
+	var i int
+	var err error
+	if err = cborUnmarshal(data, &str); err != nil {
+		return -1, fmt.Errorf("invalid array index, %v", err)
 	}
+	if i, err = strconv.Atoi(str); err != nil {
+		return -1, fmt.Errorf("invalid array index, %v", err)
+	}
+	return i, nil
+}
+
+func encodeArrayIdx(i int) rawKey {
+	return rawKey(MustMarshal(strconv.Itoa(i)))
 }
 
 // From http://tools.ietf.org/html/rfc6901#section-4 :
@@ -868,46 +909,74 @@ var (
 	rfc6901Encoder = strings.NewReplacer("/", "~1", "~", "~0")
 )
 
-// DecodePatchKey decodes a interface{} key from a RFC6901 compliant string.
+// decodePatchKey decodes a any key from a RFC6901 compliant string.
 // The key with a prefix of '~x' will be decoded to a interface with hex decode and CBOR Unmarshal.
 // Otherwise it will transform any '~1' to '/',
 // and then transform any '~0' to '~'.
 // See http://tools.ietf.org/html/rfc6901#section-4 for details.
-func DecodePatchKey(key string) interface{} {
-	if strings.HasPrefix(key, "~x") {
-		if data, err := hex.DecodeString(key[2:]); err == nil {
-			if ReadCBORType(data).ValidKey() {
-				var v interface{}
-				if err = cborUnmarshal(data, &v); err == nil {
-					return v
+func decodePatchKey(key string) rawKey {
+	if len(key) > 2 && key[0] == '~' {
+		switch key[1] {
+		case 'i':
+			if v, err := strconv.ParseInt(key[2:], 10, 64); err == nil {
+				if k, err := cborMarshal(v); err == nil {
+					return rawKey(k)
+				}
+			}
+
+		case 'u':
+			if v, err := strconv.ParseUint(key[2:], 10, 64); err == nil {
+				if k, err := cborMarshal(v); err == nil {
+					return rawKey(k)
+				}
+			}
+
+		case 'b':
+			if v, err := base64.RawURLEncoding.DecodeString(key[2:]); err == nil {
+				if k, err := cborMarshal(v); err == nil {
+					return rawKey(k)
 				}
 			}
 		}
 	}
 
-	return rfc6901Decoder.Replace(key)
+	return rawKey(MustMarshal(rfc6901Decoder.Replace(key)))
 }
 
-// EncodePatchKey encodes a interface{} key to a RFC6901 compliant string.
+// encodePatchKey encodes a any key to a RFC6901 compliant string.
 // If the key is a valid utf8 string, it will transform any '/' to '~1',
 // and then transform any '~' to '~0'.
 // Otherwise it will encode the key with CBOR Marshal and hex encode and prefix it with '~x'.
-func EncodePatchKey(key interface{}) string {
-	if str, ok := key.(string); ok {
-		return rfc6901Encoder.Replace(str)
+func encodePatchKey(key rawKey) string {
+	data := []byte(key)
+
+	switch ReadCBORType(data) {
+	case CBORTypePositiveInt:
+		var v uint64
+		if err := cborUnmarshal(data, &v); err == nil {
+			return "~u" + strconv.FormatUint(v, 10)
+		}
+
+	case CBORTypeNegativeInt:
+		var v int64
+		if err := cborUnmarshal(data, &v); err == nil {
+			return "~i" + strconv.FormatInt(v, 10)
+		}
+
+	case CBORTypeTextString:
+		var v string
+		if err := cborUnmarshal(data, &v); err == nil {
+			return rfc6901Encoder.Replace(v)
+		}
+
+	case CBORTypeByteString:
+		var v ByteString
+		if err := cborUnmarshal(data, &v); err == nil {
+			return "~b" + base64.RawURLEncoding.EncodeToString(v.Bytes())
+		}
 	}
 
-	data, err := cborMarshal(key)
-	if t := ReadCBORType(data); !t.ValidKey() && err == nil {
-		err = fmt.Errorf("%q can't be key", t.String())
-	}
-
-	if err == nil {
-		return "~x" + hex.EncodeToString(data)
-	}
-
-	// we should not reach here
-	return fmt.Sprintf("EncodePatchKey(%v) error: %v", key, err)
+	return "~e" + base64.RawURLEncoding.EncodeToString(data)
 }
 
 // AccumulatedCopySizeError is an error type returned when the accumulated size
@@ -928,4 +997,33 @@ func (a *AccumulatedCopySizeError) Error() string {
 	return fmt.Sprintf(
 		"unable to copy, the accumulated size increase of copy is %d, exceeding the limit %d",
 		a.accumulated, a.limit)
+}
+
+// rawKey is a raw encoded CBOR value for map key.
+type rawKey string
+
+// MarshalCBOR returns m or CBOR nil if m is nil.
+func (k rawKey) MarshalCBOR() ([]byte, error) {
+	if len(k) == 0 {
+		return []byte{60}, nil
+	}
+	return []byte(k), nil
+}
+
+// UnmarshalCBOR creates a copy of data and saves to *k.
+func (k *rawKey) UnmarshalCBOR(data []byte) error {
+	if k == nil {
+		return errors.New("cborpatch.rawKey: UnmarshalCBOR on nil pointer")
+	}
+	*k = rawKey(data)
+	return nil
+}
+
+func copyBytes(data []byte) []byte {
+	if data == nil {
+		return nil
+	}
+	b := make([]byte, len(data))
+	copy(b, data)
+	return b
 }

@@ -118,7 +118,7 @@ func TestGetValueByPath(t *testing.T) {
 func TestGetValueByCBORPath(t *testing.T) {
 	assert := assert.New(t)
 
-	obj := map[interface{}]interface{}{
+	obj := map[any]any{
 		"baz": "qux",
 		1:     1,
 		-1:    -1,

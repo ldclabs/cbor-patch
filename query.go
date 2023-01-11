@@ -5,6 +5,7 @@ package cborpatch
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -127,7 +128,7 @@ func findChildNodes(
 				continue
 			}
 			r, e := findChildNodes(
-				n, value, fmt.Sprintf("%s/%d", parentpath, i), subpaths, options)
+				n, value, parentpath+"/"+strconv.Itoa(i), subpaths, options)
 			if e != nil {
 				return nil, e
 			}
@@ -141,7 +142,7 @@ func findChildNodes(
 				continue
 			}
 			r, e := findChildNodes(n, value,
-				fmt.Sprintf("%s/%s", parentpath, EncodePatchKey(k)), subpaths, options)
+				parentpath+"/"+encodePatchKey(k), subpaths, options)
 			if e != nil {
 				return nil, e
 			}
@@ -161,7 +162,7 @@ func assertObject(node *Node, subpaths []string, value *Node, options *Options) 
 	}
 
 	for i, part := range subpaths {
-		next, ok := doc.get(DecodePatchKey(part), options)
+		next, ok := doc.get(decodePatchKey(part), options)
 		if ok != nil {
 			return false
 		}

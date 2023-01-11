@@ -17,16 +17,15 @@ import (
 // If v is not nil, it will decode data into v and then encode v to CBOR-encoded data.
 // If v is nil, it will decode data with the following rules:
 //
-//     JSON booleans decode to bool.
-//     JSON positive integers decode to uint64 (big.Int if value overflows).
-//     JSON negative integers decode to int64 (big.Int if value overflows).
-//     JSON floating points decode to float64.
-//     JSON text strings decode to string.
-//     JSON arrays decode to []interface{}.
-//     JSON objects decode to map[string]interface{}.
-//     JSON null decode to nil.
-//
-func FromJSON(doc []byte, v interface{}) ([]byte, error) {
+//	JSON booleans decode to bool.
+//	JSON positive integers decode to uint64 (big.Int if value overflows).
+//	JSON negative integers decode to int64 (big.Int if value overflows).
+//	JSON floating points decode to float64.
+//	JSON text strings decode to string.
+//	JSON arrays decode to []any.
+//	JSON objects decode to map[string]any.
+//	JSON null decode to nil.
+func FromJSON(doc []byte, v any) ([]byte, error) {
 	if len(doc) == 0 {
 		return doc, nil
 	}
@@ -61,7 +60,7 @@ func MustFromJSON(doc string) []byte {
 
 // ToJSON converts a CBOR-encoded data to a JSON-encoded data with a optional value as struct container.
 // If v is not nil, it will decode data into v and then encode v to JSON-encoded data.
-func ToJSON(doc []byte, v interface{}) ([]byte, error) {
+func ToJSON(doc []byte, v any) ([]byte, error) {
 	if len(doc) == 0 {
 		return doc, nil
 	}
@@ -98,7 +97,7 @@ func readJSONKey(dec *json.Decoder) (string, error) {
 	return "", fmt.Errorf("expected a string as key, got token %v", t)
 }
 
-func readJSONValue(dec *json.Decoder) (interface{}, error) {
+func readJSONValue(dec *json.Decoder) (any, error) {
 	t, err := dec.Token()
 	if err != nil {
 		return nil, err
@@ -108,7 +107,7 @@ func readJSONValue(dec *json.Decoder) (interface{}, error) {
 	case json.Delim:
 		switch v {
 		case '{':
-			obj := make(map[string]interface{})
+			obj := make(map[string]any)
 
 			for dec.More() {
 				key, err := readJSONKey(dec)
@@ -128,7 +127,7 @@ func readJSONValue(dec *json.Decoder) (interface{}, error) {
 			return obj, nil
 
 		case '[':
-			arr := make([]interface{}, 0)
+			arr := make([]any, 0)
 
 			for dec.More() {
 				val, err := readJSONValue(dec)
@@ -169,7 +168,7 @@ func maybeFloat(s string) (mf, mbf bool) {
 	return
 }
 
-func convertNumber(n json.Number) (interface{}, error) {
+func convertNumber(n json.Number) (any, error) {
 	s := string(n)
 	mf, mbf := maybeFloat(s)
 	if mbf {
