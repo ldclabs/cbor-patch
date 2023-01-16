@@ -97,7 +97,7 @@ func TestGetValueByPath(t *testing.T) {
 	assert := assert.New(t)
 
 	for _, c := range GetValueCases {
-		res, err := GetValueByPath(MustFromJSON(c.doc), c.path)
+		res, err := GetValueByPath(MustFromJSON(c.doc), PathMustFromJSON(c.path))
 		switch {
 		case c.err != "":
 			assert.ErrorContains(err, c.err,
@@ -115,27 +115,6 @@ func TestGetValueByPath(t *testing.T) {
 	}
 }
 
-func TestGetValueByCBORPath(t *testing.T) {
-	assert := assert.New(t)
-
-	obj := map[any]any{
-		"baz": "qux",
-		1:     1,
-		-1:    -1,
-		true:  false,
-		// [4]byte{0, 0, 0, 0}: []byte{0, 0, 0, 0},
-		string([]byte{0, 0, 0, 0}): map[string]string{
-			string([]byte{0, 0, 0, 0}): string([]byte{0, 0, 0, 0}),
-		},
-	}
-	data, err := cborMarshal(obj)
-	assert.NoError(err)
-
-	val, err := GetValueByPath(data, "/baz")
-	assert.NoError(err)
-	assert.Equal(MustMarshal("qux"), val)
-}
-
 type FindChildrenCase struct {
 	doc    []byte
 	tests  []*PV
@@ -145,16 +124,16 @@ type FindChildrenCase struct {
 var FindChildrenCases = []FindChildrenCase{
 	{
 		MustFromJSON(`{ "baz": "qux" }`),
-		[]*PV{{"/baz", MustFromJSON(`"qux"`)}},
-		[]*PV{{"", MustFromJSON(`{"baz": "qux"}`)}},
+		[]*PV{{PathMustFromJSON("/baz"), MustFromJSON(`"qux"`)}},
+		[]*PV{{PathMustFromJSON(""), MustFromJSON(`{"baz": "qux"}`)}},
 	},
 	{
 		MustFromJSON(`{
 	    "baz": "qux",
 	    "foo": [ "a", 2, "c" ]
 	  }`),
-		[]*PV{{"/foo/0", MustFromJSON(`"a"`)}},
-		[]*PV{{"", MustFromJSON(`{
+		[]*PV{{PathMustFromJSON("/foo/0"), MustFromJSON(`"a"`)}},
+		[]*PV{{PathMustFromJSON(""), MustFromJSON(`{
 				"baz": "qux",
 				"foo": [ "a", 2, "c" ]
 			}`),
@@ -165,56 +144,56 @@ var FindChildrenCases = []FindChildrenCase{
 	    "baz": "qux",
 	    "foo": [ "a", 2, "c" ]
 	  }`),
-		[]*PV{{"/1", MustFromJSON(`2`)}},
-		[]*PV{{"/foo", MustFromJSON(`[ "a", 2, "c" ]`)}},
+		[]*PV{{PathMustFromJSON("/1"), MustFromJSON(`2`)}},
+		[]*PV{{PathMustFromJSON("/foo"), MustFromJSON(`[ "a", 2, "c" ]`)}},
 	},
 	{
 		MustFromJSON(`{
 	    "baz": "qux",
 	    "foo": [ "a", 2, "c" ]
 	  }`),
-		[]*PV{{"/fooo", nil}},
+		[]*PV{{PathMustFromJSON("/fooo"), nil}},
 		[]*PV{},
 	},
 	{
 		MustFromJSON(`{ "foo": {} }`),
-		[]*PV{{"/foo", MustFromJSON(`{}`)}},
-		[]*PV{{"", MustFromJSON(`{ "foo": {} }`)}},
+		[]*PV{{PathMustFromJSON("/foo"), MustFromJSON(`{}`)}},
+		[]*PV{{PathMustFromJSON(""), MustFromJSON(`{ "foo": {} }`)}},
 	},
 	{
 		MustFromJSON(`{ "foo": [ ] }`),
-		[]*PV{{"/foo", MustFromJSON(`[]`)}},
-		[]*PV{{"", MustFromJSON(`{ "foo": [ ] }`)}},
+		[]*PV{{PathMustFromJSON("/foo"), MustFromJSON(`[]`)}},
+		[]*PV{{PathMustFromJSON(""), MustFromJSON(`{ "foo": [ ] }`)}},
 	},
 	{
 		MustFromJSON(`{ "foo": null }`),
-		[]*PV{{"/foo", nil}},
-		[]*PV{{"", MustFromJSON(`{ "foo": null }`)}},
+		[]*PV{{PathMustFromJSON("/foo"), nil}},
+		[]*PV{{PathMustFromJSON(""), MustFromJSON(`{ "foo": null }`)}},
 	},
 	{
 		MustFromJSON(`{ "foo": null }`),
-		[]*PV{{"/foo", MustFromJSON("")}},
-		[]*PV{{"", MustFromJSON(`{ "foo": null }`)}},
+		[]*PV{{PathMustFromJSON("/foo"), MustFromJSON("")}},
+		[]*PV{{PathMustFromJSON(""), MustFromJSON(`{ "foo": null }`)}},
 	},
 	{
 		MustFromJSON(`{ "foo": null }`),
-		[]*PV{{"/foo", MustFromJSON("null")}},
-		[]*PV{{"", MustFromJSON(`{ "foo": null }`)}},
+		[]*PV{{PathMustFromJSON("/foo"), MustFromJSON("null")}},
+		[]*PV{{PathMustFromJSON(""), MustFromJSON(`{ "foo": null }`)}},
 	},
 	{
 		MustFromJSON(`{ "foo": "" }`),
-		[]*PV{{"/foo", MustFromJSON(`""`)}},
-		[]*PV{{"", MustFromJSON(`{ "foo": "" }`)}},
+		[]*PV{{PathMustFromJSON("/foo"), MustFromJSON(`""`)}},
+		[]*PV{{PathMustFromJSON(""), MustFromJSON(`{ "foo": "" }`)}},
 	},
 	{
 		MustFromJSON(`{ "baz/foo": "qux" }`),
-		[]*PV{{"/baz~1foo", MustFromJSON(`"qux"`)}},
-		[]*PV{{"", MustFromJSON(`{ "baz/foo": "qux" }`)}},
+		[]*PV{{PathMustFromJSON("/baz~1foo"), MustFromJSON(`"qux"`)}},
+		[]*PV{{PathMustFromJSON(""), MustFromJSON(`{ "baz/foo": "qux" }`)}},
 	},
 	{
 		MustFromJSON(`{ "baz/foo": [ "qux" ] }`),
-		[]*PV{{"/0", MustFromJSON(`"qux"`)}},
-		[]*PV{{"/baz~1foo", MustFromJSON(`["qux"]`)}},
+		[]*PV{{PathMustFromJSON("/0"), MustFromJSON(`"qux"`)}},
+		[]*PV{{PathMustFromJSON("/baz~1foo"), MustFromJSON(`["qux"]`)}},
 	},
 	{
 		MustFromJSON(`[
@@ -222,10 +201,10 @@ var FindChildrenCases = []FindChildrenCase{
 			["object", { "id": "id1" }],
 			["object", { "id": "id2" }]
 		]`),
-		[]*PV{{"/0", MustFromJSON(`"object"`)}},
+		[]*PV{{PathMustFromJSON("/0"), MustFromJSON(`"object"`)}},
 		[]*PV{
-			{"/1", MustFromJSON(`["object", { "id": "id1" }]`)},
-			{"/2", MustFromJSON(`["object", { "id": "id2" }]`)},
+			{PathMustFromJSON("/1"), MustFromJSON(`["object", { "id": "id1" }]`)},
+			{PathMustFromJSON("/2"), MustFromJSON(`["object", { "id": "id2" }]`)},
 		},
 	},
 	{
@@ -234,8 +213,8 @@ var FindChildrenCases = []FindChildrenCase{
 			["object", { "id": "id1" }],
 			["object", { "id": "id2" }]
 		]`),
-		[]*PV{{"/1/id", MustFromJSON(`"id1"`)}},
-		[]*PV{{"/1", MustFromJSON(`["object", { "id": "id1" }]`)}},
+		[]*PV{{PathMustFromJSON("/1/id"), MustFromJSON(`"id1"`)}},
+		[]*PV{{PathMustFromJSON("/1"), MustFromJSON(`["object", { "id": "id1" }]`)}},
 	},
 	{
 		MustFromJSON(`[
@@ -243,8 +222,8 @@ var FindChildrenCases = []FindChildrenCase{
 			["object", { "id": "id1" }],
 			["object", { "id": "id2" }]
 		]`),
-		[]*PV{{"/1", MustFromJSON(`{ "id": "id1" }`)}},
-		[]*PV{{"/1", MustFromJSON(`["object", { "id": "id1" }]`)}},
+		[]*PV{{PathMustFromJSON("/1"), MustFromJSON(`{ "id": "id1" }`)}},
+		[]*PV{{PathMustFromJSON("/1"), MustFromJSON(`["object", { "id": "id1" }]`)}},
 	},
 	{
 		MustFromJSON(`[
@@ -252,8 +231,8 @@ var FindChildrenCases = []FindChildrenCase{
 			["object", { "id": "" }],
 			["object", { "id": null }]
 		]`),
-		[]*PV{{"/1/id", MustFromJSON(`""`)}},
-		[]*PV{{"/1", MustFromJSON(`["object", { "id": "" }]`)}},
+		[]*PV{{PathMustFromJSON("/1/id"), MustFromJSON(`""`)}},
+		[]*PV{{PathMustFromJSON("/1"), MustFromJSON(`["object", { "id": "" }]`)}},
 	},
 	{
 		MustFromJSON(`[
@@ -261,8 +240,8 @@ var FindChildrenCases = []FindChildrenCase{
 			["object", { "id": "" }],
 			["object", { "id": null }]
 		]`),
-		[]*PV{{"/1/id", MustFromJSON(`null`)}},
-		[]*PV{{"/2", MustFromJSON(`["object", { "id": null }]`)}},
+		[]*PV{{PathMustFromJSON("/1/id"), MustFromJSON(`null`)}},
+		[]*PV{{PathMustFromJSON("/2"), MustFromJSON(`["object", { "id": null }]`)}},
 	},
 	{
 		MustFromJSON(`[
@@ -270,8 +249,8 @@ var FindChildrenCases = []FindChildrenCase{
 			["object", { "id": "" }],
 			["object", { "id": null }]
 		]`),
-		[]*PV{{"/1/id", MustFromJSON(`null`)}},
-		[]*PV{{"/2", MustFromJSON(`["object", { "id": null }]`)}},
+		[]*PV{{PathMustFromJSON("/1/id"), MustFromJSON(`null`)}},
+		[]*PV{{PathMustFromJSON("/2"), MustFromJSON(`["object", { "id": null }]`)}},
 	},
 	{
 		MustFromJSON(`[
@@ -279,8 +258,8 @@ var FindChildrenCases = []FindChildrenCase{
 			["object", { "id": "" }],
 			["object", { "id": null }]
 		]`),
-		[]*PV{{"/1/id", MustFromJSON(`""`)}},
-		[]*PV{{"/1", MustFromJSON(`["object", { "id": "" }]`)}},
+		[]*PV{{PathMustFromJSON("/1/id"), MustFromJSON(`""`)}},
+		[]*PV{{PathMustFromJSON("/1"), MustFromJSON(`["object", { "id": "" }]`)}},
 	},
 	{
 		MustFromJSON(`[
@@ -289,10 +268,10 @@ var FindChildrenCases = []FindChildrenCase{
 			["object2", { "id": null }]
 		]`),
 		[]*PV{
-			{"/0", MustFromJSON(`"object2"`)},
-			{"/1/id", MustFromJSON(`null`)},
+			{PathMustFromJSON("/0"), MustFromJSON(`"object2"`)},
+			{PathMustFromJSON("/1/id"), MustFromJSON(`null`)},
 		},
-		[]*PV{{"/2", MustFromJSON(`["object2", { "id": null }]`)}},
+		[]*PV{{PathMustFromJSON("/2"), MustFromJSON(`["object2", { "id": null }]`)}},
 	},
 	{
 		MustFromJSON(`[
@@ -301,11 +280,11 @@ var FindChildrenCases = []FindChildrenCase{
 			["object2", { "id": null }]
 		]`),
 		[]*PV{
-			{"/0", MustFromJSON(`"root"`)},
-			{"/1/0", MustFromJSON(`"object1"`)},
-			{"/1/1/id", MustFromJSON(`""`)},
+			{PathMustFromJSON("/0"), MustFromJSON(`"root"`)},
+			{PathMustFromJSON("/1/0"), MustFromJSON(`"object1"`)},
+			{PathMustFromJSON("/1/1/id"), MustFromJSON(`""`)},
 		},
-		[]*PV{{"", MustFromJSON(`[
+		[]*PV{{PathMustFromJSON(""), MustFromJSON(`[
 				"root",
 				["object1", { "id": "" }],
 				["object2", { "id": null }]
@@ -319,13 +298,13 @@ var FindChildrenCases = []FindChildrenCase{
 			["object2", { "id": null }]
 		]`),
 		[]*PV{
-			{"/0", MustFromJSON(`"root"`)},
-			{"/1/0", MustFromJSON(`"object1"`)},
-			{"/1/1/id", MustFromJSON(`""`)},
-			{"/2", MustFromJSON(`["object2", { "id": null }]`)},
+			{PathMustFromJSON("/0"), MustFromJSON(`"root"`)},
+			{PathMustFromJSON("/1/0"), MustFromJSON(`"object1"`)},
+			{PathMustFromJSON("/1/1/id"), MustFromJSON(`""`)},
+			{PathMustFromJSON("/2"), MustFromJSON(`["object2", { "id": null }]`)},
 		},
 		[]*PV{
-			{"", MustFromJSON(`[
+			{PathMustFromJSON(""), MustFromJSON(`[
 				"root",
 				["object1", { "id": "" }],
 				["object2", { "id": null }]
@@ -341,11 +320,13 @@ var FindChildrenCases = []FindChildrenCase{
 				["span", {"data-type": null}, "Hello 4"]
 			]
 		]]`),
-		[]*PV{{"/0", MustFromJSON(`"span"`)}, {"/1/data-type", MustFromJSON(`"leaf"`)}},
 		[]*PV{
-			{"/1/1/2", MustFromJSON(`["span", {"data-type": "leaf"}, "Hello 1"]`)},
-			{"/1/1/3", MustFromJSON(`["span", {"data-type": "leaf"}, "Hello 2"]`)},
-			{"/1/1/4", MustFromJSON(`["span", {"data-type": "leaf"}, "Hello 3"]`)},
+			{PathMustFromJSON("/0"), MustFromJSON(`"span"`)},
+			{PathMustFromJSON("/1/data-type"), MustFromJSON(`"leaf"`)}},
+		[]*PV{
+			{PathMustFromJSON("/1/1/2"), MustFromJSON(`["span", {"data-type": "leaf"}, "Hello 1"]`)},
+			{PathMustFromJSON("/1/1/3"), MustFromJSON(`["span", {"data-type": "leaf"}, "Hello 2"]`)},
+			{PathMustFromJSON("/1/1/4"), MustFromJSON(`["span", {"data-type": "leaf"}, "Hello 3"]`)},
 		},
 	},
 	{
@@ -357,8 +338,10 @@ var FindChildrenCases = []FindChildrenCase{
 				["span", {"data-type": null}, "Hello 4"]
 			]
 		]]`),
-		[]*PV{{"/0", MustFromJSON(`"span"`)}, {"/1/data-type", nil}},
-		[]*PV{{"/1/1/5", MustFromJSON(`["span", {"data-type": null}, "Hello 4"]`)}},
+		[]*PV{
+			{PathMustFromJSON("/0"), MustFromJSON(`"span"`)},
+			{PathMustFromJSON("/1/data-type"), nil}},
+		[]*PV{{PathMustFromJSON("/1/1/5"), MustFromJSON(`["span", {"data-type": null}, "Hello 4"]`)}},
 	},
 	{
 		MustFromJSON(`["root", ["p",
@@ -369,17 +352,17 @@ var FindChildrenCases = []FindChildrenCase{
 				["span", {"data-type": null}, "Hello 4"]
 			]
 		]]`),
-		[]*PV{{"/0", MustFromJSON(`"span"`)}},
+		[]*PV{{PathMustFromJSON("/0"), MustFromJSON(`"span"`)}},
 		[]*PV{
-			{"/1/1", MustFromJSON(`["span", {"data-type": "text"},
+			{PathMustFromJSON("/1/1"), MustFromJSON(`["span", {"data-type": "text"},
 			["span", {"data-type": "leaf"}, "Hello 1"],
 			["span", {"data-type": "leaf"}, "Hello 2"],
 			["span", {"data-type": "leaf"}, "Hello 3"],
 			["span", {"data-type": null}, "Hello 4"]]`)},
-			{"/1/1/2", MustFromJSON(`["span", {"data-type": "leaf"}, "Hello 1"]`)},
-			{"/1/1/3", MustFromJSON(`["span", {"data-type": "leaf"}, "Hello 2"]`)},
-			{"/1/1/4", MustFromJSON(`["span", {"data-type": "leaf"}, "Hello 3"]`)},
-			{"/1/1/5", MustFromJSON(`["span", {"data-type": null}, "Hello 4"]`)},
+			{PathMustFromJSON("/1/1/2"), MustFromJSON(`["span", {"data-type": "leaf"}, "Hello 1"]`)},
+			{PathMustFromJSON("/1/1/3"), MustFromJSON(`["span", {"data-type": "leaf"}, "Hello 2"]`)},
+			{PathMustFromJSON("/1/1/4"), MustFromJSON(`["span", {"data-type": "leaf"}, "Hello 3"]`)},
+			{PathMustFromJSON("/1/1/5"), MustFromJSON(`["span", {"data-type": null}, "Hello 4"]`)},
 		},
 	},
 }
@@ -399,11 +382,11 @@ func TestFindChildren(t *testing.T) {
 
 		for j := range res {
 			assert.Equal(c.result[j].Path, res[j].Path,
-				"Testing failed for case %d, %v: expected path [%s], got [%s]",
+				"Testing failed for case %d, %v: expected path %s, got %s",
 				i, string(c.doc), c.result[j].Path, res[j].Path)
 
 			assert.Equal(c.result[j].Value, res[j].Value,
-				"Testing failed for case %d, %v: expected [%s], got [%s]",
+				"Testing failed for case %d, %v: expected %s, got %s",
 				i, MustToJSON(c.doc), MustToJSON(c.result[j].Value), MustToJSON(res[j].Value))
 		}
 	}

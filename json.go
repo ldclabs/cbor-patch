@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/big"
 	"strconv"
+	"strings"
 )
 
 // FromJSON converts a JSON-encoded data to a CBOR-encoded data with a optional value as struct container.
@@ -83,6 +84,114 @@ func MustToJSON(doc []byte) string {
 		panic(err)
 	}
 	return string(data)
+}
+
+func PathFromJSON(jsonpath string) (Path, error) {
+	if jsonpath == "" {
+		return Path{}, nil
+	}
+
+	if jsonpath[0] != '/' {
+		return nil, fmt.Errorf("invalid JSON Pointer %q", jsonpath)
+	}
+
+	parts := strings.Split(jsonpath[1:], "/")
+	path := make(Path, len(parts))
+	for i, part := range parts {
+		token := rfc6901Decoder.Replace(part)
+		if len(token) > 0 {
+			switch token[0] {
+			case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				if v, err := strconv.Atoi(token); err == nil {
+					data, err := cborMarshal(v)
+					if err != nil {
+						return nil, err
+					}
+
+					path[i] = rawKey(data)
+					continue
+				}
+			}
+		}
+
+		data, err := cborMarshal(token)
+		if err != nil {
+			return nil, err
+		}
+		path[i] = rawKey(data)
+	}
+
+	return path, nil
+}
+
+func PathMustFromJSON(jsonpath string) Path {
+	path, err := PathFromJSON(jsonpath)
+	if err != nil {
+		panic(err)
+	}
+	return path
+}
+
+type jsonOperation struct {
+	Op    string           `json:"op"`
+	Path  string           `json:"path"`
+	From  *string          `json:"from,omitempty"`
+	Value *json.RawMessage `json:"value,omitempty"`
+}
+
+func PatchFromJSON(jsonpatch string) (Patch, error) {
+	var err error
+	jp := make([]jsonOperation, 0)
+	if err = json.Unmarshal([]byte(jsonpatch), &jp); err != nil {
+		return nil, err
+	}
+
+	patch := make(Patch, len(jp))
+	for i, p := range jp {
+		var op Op
+
+		switch p.Op {
+		default:
+			return nil, fmt.Errorf("invalid json patch operation %q", p.Op)
+		case "add":
+			op = OpAdd
+		case "remove":
+			op = OpRemove
+		case "replace":
+			op = OpReplace
+		case "move":
+			op = OpMove
+		case "copy":
+			op = OpCopy
+		case "test":
+			op = OpTest
+		}
+
+		o := &Operation{Op: op}
+		if o.Path, err = PathFromJSON(p.Path); err != nil {
+			return nil, err
+		}
+
+		if p.From != nil {
+			if o.From, err = PathFromJSON(*p.From); err != nil {
+				return nil, err
+			}
+		}
+
+		if p.Value != nil {
+			data, err := FromJSON(*p.Value, nil)
+			if err != nil {
+				return nil, err
+			}
+			o.Value = data
+		}
+
+		if err = o.Valid(); err != nil {
+			return nil, err
+		}
+		patch[i] = o
+	}
+	return patch, nil
 }
 
 func readJSONKey(dec *json.Decoder) (string, error) {

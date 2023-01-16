@@ -45,8 +45,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func reformatJSON(j string) string {
@@ -70,9 +68,9 @@ func applyPatch(doc, patch string) (string, error) {
 }
 
 func applyPatchWithOptions(doc, patch string, options *Options) (string, error) {
-	obj, err := NewPatch(MustFromJSON(patch))
+	obj, err := PatchFromJSON(patch)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
 
 	out, err := obj.ApplyWithOptions(MustFromJSON(doc), options)
@@ -763,9 +761,6 @@ func TestAllCases(t *testing.T) {
 	options := NewOptions()
 
 	for i, c := range Cases {
-		if i != 59 {
-			continue
-		}
 		t.Run(fmt.Sprintf("Case %d", i), func(t *testing.T) {
 			options.AllowMissingPathOnRemove = c.allowMissingPathOnRemove
 			options.EnsurePathExistsOnAdd = c.ensurePathExistsOnAdd
@@ -828,7 +823,7 @@ var TestCases = []TestCase{
 		`{ "baz": "qux" }`,
 		`[ { "op": "test", "path": "/baz", "value": "bar" } ]`,
 		false,
-		"/baz",
+		`["baz"]`,
 	},
 	{
 		`{
@@ -840,13 +835,13 @@ var TestCases = []TestCase{
       { "op": "test", "path": "/foo/1", "value": "c" }
     ]`,
 		false,
-		"/foo/1",
+		`["foo",1]`,
 	},
 	{
 		`{ "baz": "qux" }`,
 		`[ { "op": "test", "path": "/foo", "value": 42 } ]`,
 		false,
-		"/foo",
+		`["foo"]`,
 	},
 	{
 		`{ "baz": "qux" }`,
@@ -864,13 +859,13 @@ var TestCases = []TestCase{
 		`{ "foo": {} }`,
 		`[ { "op": "test", "path": "/foo", "value": null } ]`,
 		false,
-		"/foo",
+		`["foo"]`,
 	},
 	{
 		`{ "foo": [] }`,
 		`[ { "op": "test", "path": "/foo", "value": null } ]`,
 		false,
-		"/foo",
+		`["foo"]`,
 	},
 	{
 		`{ "baz/foo": "qux" }`,
@@ -882,19 +877,19 @@ var TestCases = []TestCase{
 		`{ "foo": [] }`,
 		`[ { "op": "test", "path": "/foo"} ]`,
 		false,
-		"/foo",
+		`["foo"]`,
 	},
 	{
 		`{ "foo": "bar" }`,
 		`[ { "op": "test", "path": "/baz", "value": "bar" } ]`,
 		false,
-		"/baz",
+		`["baz"]`,
 	},
 	{
 		`{ "foo": "bar" }`,
 		`[ { "op": "test", "path": "/baz", "value": null } ]`,
 		true,
-		"/baz",
+		`["baz"]`,
 	},
 }
 
@@ -918,7 +913,7 @@ func TestAllTest(t *testing.T) {
 func TestAdd(t *testing.T) {
 	testCases := []struct {
 		name                   string
-		key                    string
+		key                    rawKey
 		val                    Node
 		arr                    partialArray
 		rejectNegativeIndicies bool
@@ -926,33 +921,33 @@ func TestAdd(t *testing.T) {
 	}{
 		{
 			name: "should work",
-			key:  "0",
+			key:  rawKey(MustMarshal(0)),
 			val:  Node{},
 			arr:  partialArray{},
 		},
 		{
 			name: "index too large",
-			key:  "1",
+			key:  rawKey(MustMarshal(1)),
 			val:  Node{},
 			arr:  partialArray{},
 			err:  "unable to access invalid index 1, invalid index referenced",
 		},
 		{
 			name: "negative should work",
-			key:  "-1",
+			key:  rawKey(MustMarshal(-1)),
 			val:  Node{},
 			arr:  partialArray{},
 		},
 		{
 			name: "negative too small",
-			key:  "-2",
+			key:  rawKey(MustMarshal(-2)),
 			val:  Node{},
 			arr:  partialArray{},
 			err:  "unable to access invalid index -2, invalid index referenced",
 		},
 		{
 			name:                   "negative but negative disabled",
-			key:                    "-1",
+			key:                    rawKey(MustMarshal(-1)),
 			val:                    Node{},
 			arr:                    partialArray{},
 			rejectNegativeIndicies: true,
@@ -964,11 +959,10 @@ func TestAdd(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			key := decodePatchKey(tc.key)
 			arr := &tc.arr
 			val := &tc.val
 			options.SupportNegativeIndices = !tc.rejectNegativeIndicies
-			err := arr.add(key, val, options)
+			err := arr.add(tc.key, val, options)
 			if err == nil && tc.err != "" {
 				t.Errorf("Expected error but got none! %v", tc.err)
 			} else if err != nil && tc.err == "" {
@@ -1086,35 +1080,5 @@ func TestEquality(t *testing.T) {
 				t.Errorf("Expected Equal(%s, %s) to return %t, but got %t", tc.b, tc.a, tc.equal, got)
 			}
 		})
-	}
-}
-
-func TestPatchKey(t *testing.T) {
-	assert := assert.New(t)
-
-	type patchKeyCase struct {
-		key    any
-		result string
-	}
-
-	testCases := []*patchKeyCase{
-		{"", ""},
-		{"~~", "~0~0"},
-		{"//", "~1~1"},
-		{"someKey", "someKey"},
-		{"/someKey~", "~1someKey~0"},
-		{"~some/Key", "~0some~1Key"},
-		{uint64(1), "~u1"},
-		{uint64(999999999999999), "~u999999999999999"},
-		{int64(-1), "~i-1"},
-		{int64(-999999999999999), "~i-999999999999999"},
-		{[]byte{0, 0, 0, 0}, "~bAAAAAA"},
-		{[]byte{255, 255, 255, 255}, "~b_____w"},
-	}
-
-	for _, tc := range testCases {
-		k := rawKey(MustMarshal(tc.key))
-		assert.Equal(tc.result, encodePatchKey(k))
-		assert.Equal(k, decodePatchKey(tc.result))
 	}
 }

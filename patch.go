@@ -39,11 +39,9 @@ package cborpatch
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 )
 
@@ -76,16 +74,8 @@ func Equal(a, b []byte) bool {
 	return NewNode(a).Equal(NewNode(b))
 }
 
-// Operation is a single CBOR-Patch step, such as a single 'add' operation.
-type Operation struct {
-	Op    string     `cbor:"op"`
-	Path  string     `cbor:"path"`
-	From  string     `cbor:"from,omitempty"`
-	Value RawMessage `cbor:"value,omitempty"`
-}
-
 // Patch is an ordered collection of Operations.
-type Patch []Operation
+type Patch []*Operation
 
 // Options specifies options for calls to ApplyWithOptions.
 // Use NewOptions to obtain default values for Options.
@@ -120,11 +110,23 @@ func NewPatch(doc []byte) (Patch, error) {
 	var p Patch
 
 	err := cborUnmarshal(doc, &p)
+	if err == nil {
+		err = p.Valid()
+	}
 	if err != nil {
 		return nil, err
 	}
 
 	return p, nil
+}
+
+func (p Patch) Valid() error {
+	for _, op := range p {
+		if err := op.Valid(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Apply mutates a CBOR document according to the patch, and returns the new document.
@@ -168,6 +170,7 @@ func (n *Node) String() string {
 	if n.raw == nil || isNull(*n.raw) {
 		return "<nil>"
 	}
+
 	var v any
 	if err := cborUnmarshal(*n.raw, &v); err != nil {
 		return fmt.Sprintf("<error: %v>", err)
@@ -192,17 +195,17 @@ func (n *Node) Patch(p Patch, options *Options) error {
 	var accumulatedCopySize int64
 	for _, op := range p {
 		switch op.Op {
-		case "add":
+		case OpAdd:
 			err = p.add(&pd, op, options)
-		case "remove":
+		case OpRemove:
 			err = p.remove(&pd, op, options)
-		case "replace":
+		case OpReplace:
 			err = p.replace(&pd, op, options)
-		case "move":
+		case OpMove:
 			err = p.move(&pd, op, options)
-		case "test":
+		case OpTest:
 			err = p.test(&pd, op, options)
-		case "copy":
+		case OpCopy:
 			err = p.copy(&pd, op, &accumulatedCopySize, options)
 		default:
 			err = fmt.Errorf("unexpected operation %q", op.Op)
@@ -306,7 +309,7 @@ func (d *partialDoc) MarshalCBOR() ([]byte, error) {
 func (d *partialDoc) MarshalJSON() ([]byte, error) {
 	obj := make(map[string]*Node, len(d.obj))
 	for k := range d.obj {
-		obj[encodePatchKey(k)] = d.obj[k]
+		obj[k.String()] = d.obj[k]
 	}
 	return json.Marshal(obj)
 }
@@ -327,7 +330,7 @@ func (d *partialDoc) add(key rawKey, val *Node, options *Options) error {
 func (d *partialDoc) get(key rawKey, options *Options) (*Node, error) {
 	v, ok := d.obj[key]
 	if !ok {
-		return nil, fmt.Errorf("unable to get nonexistent key %q, %v", encodePatchKey(key), ErrMissing)
+		return nil, fmt.Errorf("unable to get nonexistent key %q, %v", key.String(), ErrMissing)
 	}
 	if v == nil {
 		v = NewNode(nil)
@@ -341,7 +344,7 @@ func (d *partialDoc) remove(key rawKey, options *Options) error {
 		if options.AllowMissingPathOnRemove {
 			return nil
 		}
-		return fmt.Errorf("unable to remove nonexistent key %q, %v", encodePatchKey(key), ErrMissing)
+		return fmt.Errorf("unable to remove nonexistent key %q, %v", key.String(), ErrMissing)
 	}
 	delete(d.obj, key)
 	return nil
@@ -354,7 +357,7 @@ func (d *partialDoc) len() int {
 // set should only be used to implement the "replace" operation, so "key" must
 // be an already existing index in "d".
 func (d *partialArray) set(key rawKey, val *Node, options *Options) error {
-	idx, err := decodeArrayIdx(key)
+	idx, err := key.toInt()
 	if err != nil {
 		return err
 	}
@@ -371,14 +374,13 @@ func (d *partialArray) set(key rawKey, val *Node, options *Options) error {
 	return nil
 }
 
-var minus = rawKey([]byte{0x61, 0x2d}) // "-"
 func (d *partialArray) add(key rawKey, val *Node, options *Options) error {
 	if key == minus {
 		*d = append(*d, val)
 		return nil
 	}
 
-	idx, err := decodeArrayIdx(key)
+	idx, err := key.toInt()
 	if err != nil {
 		return err
 	}
@@ -406,7 +408,7 @@ func (d *partialArray) add(key rawKey, val *Node, options *Options) error {
 }
 
 func (d *partialArray) get(key rawKey, options *Options) (*Node, error) {
-	idx, err := decodeArrayIdx(key)
+	idx, err := key.toInt()
 	if err != nil {
 		return nil, err
 	}
@@ -430,7 +432,7 @@ func (d *partialArray) get(key rawKey, options *Options) (*Node, error) {
 }
 
 func (d *partialArray) remove(key rawKey, options *Options) error {
-	idx, err := decodeArrayIdx(key)
+	idx, err := key.toInt()
 	if err != nil {
 		return err
 	}
@@ -568,7 +570,7 @@ func (n *Node) Equal(o *Node) bool {
 	return true
 }
 
-func (p Patch) add(doc *container, op Operation, options *Options) error {
+func (p Patch) add(doc *container, op *Operation, options *Options) error {
 	if options.EnsurePathExistsOnAdd {
 		if err := ensurePathExists(doc, op.Path, options); err != nil {
 			return err
@@ -587,7 +589,7 @@ func (p Patch) add(doc *container, op Operation, options *Options) error {
 	return nil
 }
 
-func (p Patch) remove(doc *container, op Operation, options *Options) error {
+func (p Patch) remove(doc *container, op *Operation, options *Options) error {
 	con, key := findObject(doc, op.Path, options)
 	if con == nil {
 		if options.AllowMissingPathOnRemove {
@@ -602,8 +604,8 @@ func (p Patch) remove(doc *container, op Operation, options *Options) error {
 	return nil
 }
 
-func (p Patch) replace(doc *container, op Operation, options *Options) error {
-	if op.Path == "" {
+func (p Patch) replace(doc *container, op *Operation, options *Options) error {
+	if len(op.Path) == 0 {
 		val := NewNode(op.Value)
 		val.intoContainer()
 
@@ -635,7 +637,7 @@ func (p Patch) replace(doc *container, op Operation, options *Options) error {
 	return nil
 }
 
-func (p Patch) move(doc *container, op Operation, options *Options) error {
+func (p Patch) move(doc *container, op *Operation, options *Options) error {
 	con, key := findObject(doc, op.From, options)
 	if con == nil {
 		return fmt.Errorf("move operation does not apply for from %q, %v", op.From, ErrMissing)
@@ -661,8 +663,8 @@ func (p Patch) move(doc *container, op Operation, options *Options) error {
 	return nil
 }
 
-func (p Patch) test(doc *container, op Operation, options *Options) error {
-	if op.Path == "" {
+func (p Patch) test(doc *container, op *Operation, options *Options) error {
+	if len(op.Path) == 0 {
 		var self Node
 
 		switch sv := (*doc).(type) {
@@ -712,7 +714,7 @@ func (p Patch) test(doc *container, op Operation, options *Options) error {
 		op.Path, NewNode(op.Value).String(), val.String())
 }
 
-func (p Patch) copy(doc *container, op Operation, accumulatedCopySize *int64, options *Options) error {
+func (p Patch) copy(doc *container, op *Operation, accumulatedCopySize *int64, options *Options) error {
 	con, key := findObject(doc, op.From, options)
 
 	if con == nil {
@@ -748,19 +750,18 @@ func (p Patch) copy(doc *container, op Operation, accumulatedCopySize *int64, op
 	return nil
 }
 
-func findObject(pd *container, path string, options *Options) (container, rawKey) {
+func findObject(pd *container, path Path, options *Options) (container, rawKey) {
 	doc := *pd
 
-	split := strings.Split(path, "/")
-	if len(split) < 2 {
+	if len(path) == 0 {
 		return nil, ""
 	}
 
-	parts := split[1 : len(split)-1]
-	key := split[len(split)-1]
+	parts := path[:len(path)-1]
+	key := path[len(path)-1]
 
-	for _, part := range parts {
-		next, ok := doc.get(decodePatchKey(part), options)
+	for _, k := range parts {
+		next, ok := doc.get(k, options)
 		if next == nil || ok != nil {
 			return nil, ""
 		}
@@ -769,40 +770,40 @@ func findObject(pd *container, path string, options *Options) (container, rawKey
 			return nil, ""
 		}
 	}
-	return doc, decodePatchKey(key)
+	return doc, key
 }
 
 // Given a document and a path to a key, walk the path and create all missing elements
 // creating objects and arrays as needed.
-func ensurePathExists(pd *container, path string, options *Options) error {
+func ensurePathExists(pd *container, path Path, options *Options) error {
 	var err error
 	var arrIndex int
 
 	doc := *pd
-	split := strings.Split(path, "/")
-	if len(split) < 2 {
+	if len(path) == 0 {
 		return nil
 	}
 
-	parts := split[1:]
-	for pi, part := range parts {
+	for pi, key := range path {
 		// Have we reached the key part of the path?
 		// If yes, we're done.
-		if pi == len(parts)-1 {
+		if pi == len(path)-1 {
 			return nil
 		}
 
-		key := decodePatchKey(part)
 		target, ok := doc.get(key, options)
 		if target == nil || ok != nil {
+
 			// If the current container is an array which has fewer elements than our target index,
 			// pad the current container with nulls.
-			if arrIndex, err = strconv.Atoi(part); err == nil {
-				pa, ok := doc.(*partialArray)
-
-				if ok && arrIndex >= len(*pa)+1 {
+			if pa, ok := doc.(*partialArray); ok && key.isIndex() {
+				arrIndex, err = key.toInt()
+				if err != nil {
+					return err
+				}
+				if arrIndex >= pa.len()+1 {
 					// Pad the array with null values up to the required index.
-					for i := len(*pa); i <= arrIndex-1; i++ {
+					for i := pa.len(); i <= arrIndex-1; i++ {
 						if err = doc.add(encodeArrayIdx(i), NewNode(nil), options); err != nil {
 							return err
 						}
@@ -812,7 +813,12 @@ func ensurePathExists(pd *container, path string, options *Options) error {
 
 			// Check if the next part is a numeric index or "-".
 			// If yes, then create an array, otherwise, create an object.
-			if arrIndex, err = strconv.Atoi(parts[pi+1]); err == nil || parts[pi+1] == "-" {
+			if path[pi+1].isIndex() {
+				arrIndex, err = path[pi+1].toInt()
+				if err != nil {
+					return err
+				}
+
 				if arrIndex < 0 {
 					if !options.SupportNegativeIndices {
 						return fmt.Errorf("unable to ensure path for invalid index 9 %d, %v",
@@ -880,22 +886,8 @@ func isNull(data RawMessage) bool {
 	return false
 }
 
-func decodeArrayIdx(key rawKey) (int, error) {
-	data := []byte(key)
-	var str string
-	var i int
-	var err error
-	if err = cborUnmarshal(data, &str); err != nil {
-		return -1, fmt.Errorf("invalid array index, %v", err)
-	}
-	if i, err = strconv.Atoi(str); err != nil {
-		return -1, fmt.Errorf("invalid array index, %v", err)
-	}
-	return i, nil
-}
-
 func encodeArrayIdx(i int) rawKey {
-	return rawKey(MustMarshal(strconv.Itoa(i)))
+	return rawKey(MustMarshal(i))
 }
 
 // From http://tools.ietf.org/html/rfc6901#section-4 :
@@ -908,76 +900,6 @@ var (
 	rfc6901Decoder = strings.NewReplacer("~1", "/", "~0", "~")
 	rfc6901Encoder = strings.NewReplacer("/", "~1", "~", "~0")
 )
-
-// decodePatchKey decodes a any key from a RFC6901 compliant string.
-// The key with a prefix of '~x' will be decoded to a interface with hex decode and CBOR Unmarshal.
-// Otherwise it will transform any '~1' to '/',
-// and then transform any '~0' to '~'.
-// See http://tools.ietf.org/html/rfc6901#section-4 for details.
-func decodePatchKey(key string) rawKey {
-	if len(key) > 2 && key[0] == '~' {
-		switch key[1] {
-		case 'i':
-			if v, err := strconv.ParseInt(key[2:], 10, 64); err == nil {
-				if k, err := cborMarshal(v); err == nil {
-					return rawKey(k)
-				}
-			}
-
-		case 'u':
-			if v, err := strconv.ParseUint(key[2:], 10, 64); err == nil {
-				if k, err := cborMarshal(v); err == nil {
-					return rawKey(k)
-				}
-			}
-
-		case 'b':
-			if v, err := base64.RawURLEncoding.DecodeString(key[2:]); err == nil {
-				if k, err := cborMarshal(v); err == nil {
-					return rawKey(k)
-				}
-			}
-		}
-	}
-
-	return rawKey(MustMarshal(rfc6901Decoder.Replace(key)))
-}
-
-// encodePatchKey encodes a any key to a RFC6901 compliant string.
-// If the key is a valid utf8 string, it will transform any '/' to '~1',
-// and then transform any '~' to '~0'.
-// Otherwise it will encode the key with CBOR Marshal and hex encode and prefix it with '~x'.
-func encodePatchKey(key rawKey) string {
-	data := []byte(key)
-
-	switch ReadCBORType(data) {
-	case CBORTypePositiveInt:
-		var v uint64
-		if err := cborUnmarshal(data, &v); err == nil {
-			return "~u" + strconv.FormatUint(v, 10)
-		}
-
-	case CBORTypeNegativeInt:
-		var v int64
-		if err := cborUnmarshal(data, &v); err == nil {
-			return "~i" + strconv.FormatInt(v, 10)
-		}
-
-	case CBORTypeTextString:
-		var v string
-		if err := cborUnmarshal(data, &v); err == nil {
-			return rfc6901Encoder.Replace(v)
-		}
-
-	case CBORTypeByteString:
-		var v ByteString
-		if err := cborUnmarshal(data, &v); err == nil {
-			return "~b" + base64.RawURLEncoding.EncodeToString(v.Bytes())
-		}
-	}
-
-	return "~e" + base64.RawURLEncoding.EncodeToString(data)
-}
 
 // AccumulatedCopySizeError is an error type returned when the accumulated size
 // increase caused by copy operations in a patch operation has exceeded the
@@ -997,26 +919,6 @@ func (a *AccumulatedCopySizeError) Error() string {
 	return fmt.Sprintf(
 		"unable to copy, the accumulated size increase of copy is %d, exceeding the limit %d",
 		a.accumulated, a.limit)
-}
-
-// rawKey is a raw encoded CBOR value for map key.
-type rawKey string
-
-// MarshalCBOR returns m or CBOR nil if m is nil.
-func (k rawKey) MarshalCBOR() ([]byte, error) {
-	if len(k) == 0 {
-		return []byte{60}, nil
-	}
-	return []byte(k), nil
-}
-
-// UnmarshalCBOR creates a copy of data and saves to *k.
-func (k *rawKey) UnmarshalCBOR(data []byte) error {
-	if k == nil {
-		return errors.New("cborpatch.rawKey: UnmarshalCBOR on nil pointer")
-	}
-	*k = rawKey(data)
-	return nil
 }
 
 func copyBytes(data []byte) []byte {
