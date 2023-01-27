@@ -34,6 +34,7 @@
 package cborpatch
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/fxamacker/cbor/v2"
@@ -141,4 +142,14 @@ func MustMarshal(val any) []byte {
 		panic(err)
 	}
 	return data
+}
+
+// Diagify returns the doc as CBOR diagnostic notation.
+// If the doc is a invalid CBOR bytes, it returns the doc with base16 encoding like a byte string.
+func Diagify(doc []byte) string {
+	if data, err := cbor.Diag(doc, nil); err == nil {
+		return string(data)
+	}
+
+	return fmt.Sprintf("h'%x'", doc)
 }

@@ -835,7 +835,7 @@ var TestCases = []TestCase{
       { "op": "test", "path": "/foo/1", "value": "c" }
     ]`,
 		false,
-		`["foo",1]`,
+		`["foo", 1]`,
 	},
 	{
 		`{ "baz": "qux" }`,

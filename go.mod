@@ -13,3 +13,5 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/fxamacker/cbor/v2 v2.5.0-beta => github.com/ldclabs/cbor/v2 v2.5.0-stg3

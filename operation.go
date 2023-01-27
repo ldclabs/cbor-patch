@@ -4,11 +4,9 @@
 package cborpatch
 
 import (
-	"encoding/base64"
-	"encoding/json"
+	"bytes"
 	"errors"
 	"fmt"
-	"strconv"
 )
 
 type Op int
@@ -154,27 +152,22 @@ func PathFrom(keys ...any) (Path, error) {
 	return path, nil
 }
 
-// String returns the Path as diagnostic notation (TODO).
+// String returns the Path as CBOR diagnostic notation.
 func (p Path) String() string {
 	if p == nil {
 		return "null"
 	}
 
-	slice := make([]any, len(p))
+	buf := &bytes.Buffer{}
+	buf.WriteByte('[')
 	for i, k := range p {
-		var v any
-		if err := cborUnmarshal([]byte(k), &v); err != nil {
-			v = fmt.Sprintf("h'%x'", []byte(k))
+		if i > 0 {
+			buf.WriteString(", ")
 		}
-		if ReadCBORType([]byte(k)) == CBORTypeByteString {
-			v = fmt.Sprintf("h'%x'", v)
-		}
-
-		slice[i] = v
+		buf.WriteString(k.String())
 	}
-
-	data, _ := json.Marshal(slice)
-	return string(data)
+	buf.WriteByte(']')
+	return buf.String()
 }
 
 func (p Path) withIndex(i int) Path {
@@ -201,15 +194,17 @@ func (k rawKey) isIndex() bool {
 	if k.isMinus() {
 		return true
 	}
+	switch ReadCBORType([]byte(k)) {
+	default:
+		return false
 
-	if ty := ReadCBORType([]byte(k)); ty == CBORTypePositiveInt || ty == CBORTypeNegativeInt {
+	case CBORTypePositiveInt, CBORTypeNegativeInt:
 		return true
 	}
-	return false
 }
 
 func (k rawKey) isValid() bool {
-	switch ty := ReadCBORType([]byte(k)); ty {
+	switch ReadCBORType([]byte(k)) {
 	default:
 		return false
 
@@ -231,36 +226,18 @@ func (k rawKey) toInt() (int, error) {
 	return i, nil
 }
 
+// String returns the rawKey as CBOR diagnostic notation.
 func (k rawKey) String() string {
-	data := []byte(k)
+	return Diagify([]byte(k))
+}
 
-	switch ReadCBORType(data) {
-	case CBORTypePositiveInt:
-		var v uint64
-		if err := cborUnmarshal(data, &v); err == nil {
-			return strconv.FormatUint(v, 10)
-		}
-
-	case CBORTypeNegativeInt:
-		var v int64
-		if err := cborUnmarshal(data, &v); err == nil {
-			return strconv.FormatInt(v, 10)
-		}
-
-	case CBORTypeTextString:
-		var v string
-		if err := cborUnmarshal(data, &v); err == nil {
-			return rfc6901Encoder.Replace(v)
-		}
-
-	case CBORTypeByteString:
-		var v ByteString
-		if err := cborUnmarshal(data, &v); err == nil {
-			return base64.RawURLEncoding.EncodeToString(v.Bytes())
-		}
+// Key returns a string notation as JSON Object key.
+func (k rawKey) Key() string {
+	str := k.String()
+	if len(str) > 1 && str[0] == '"' && str[len(str)-1] == '"' {
+		str = str[1 : len(str)-1]
 	}
-
-	return base64.RawURLEncoding.EncodeToString(data)
+	return str
 }
 
 // MarshalCBOR returns m or CBOR nil if m is nil.

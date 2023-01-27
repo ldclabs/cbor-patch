@@ -165,17 +165,13 @@ func NewNode(doc RawMessage) *Node {
 	return &Node{raw: &raw, ty: CBORTypePrimitives}
 }
 
-// String returns a string representation of the node.
+// String returns the Node as CBOR diagnostic notation.
 func (n *Node) String() string {
 	if n.raw == nil || isNull(*n.raw) {
-		return "<nil>"
+		return "null"
 	}
 
-	var v any
-	if err := cborUnmarshal(*n.raw, &v); err != nil {
-		return fmt.Sprintf("<error: %v>", err)
-	}
-	return fmt.Sprintf("%v", v)
+	return Diagify(*n.raw)
 }
 
 // Patch applies the given patch to the node.
@@ -309,7 +305,7 @@ func (d *partialDoc) MarshalCBOR() ([]byte, error) {
 func (d *partialDoc) MarshalJSON() ([]byte, error) {
 	obj := make(map[string]*Node, len(d.obj))
 	for k := range d.obj {
-		obj[k.String()] = d.obj[k]
+		obj[k.Key()] = d.obj[k]
 	}
 	return json.Marshal(obj)
 }
@@ -330,7 +326,7 @@ func (d *partialDoc) add(key rawKey, val *Node, options *Options) error {
 func (d *partialDoc) get(key rawKey, options *Options) (*Node, error) {
 	v, ok := d.obj[key]
 	if !ok {
-		return nil, fmt.Errorf("unable to get nonexistent key %q, %v", key.String(), ErrMissing)
+		return nil, fmt.Errorf("unable to get nonexistent key %q, %v", key.Key(), ErrMissing)
 	}
 	if v == nil {
 		v = NewNode(nil)
@@ -344,7 +340,7 @@ func (d *partialDoc) remove(key rawKey, options *Options) error {
 		if options.AllowMissingPathOnRemove {
 			return nil
 		}
-		return fmt.Errorf("unable to remove nonexistent key %q, %v", key.String(), ErrMissing)
+		return fmt.Errorf("unable to remove nonexistent key %q, %v", key.Key(), ErrMissing)
 	}
 	delete(d.obj, key)
 	return nil
@@ -889,17 +885,6 @@ func isNull(data RawMessage) bool {
 func encodeArrayIdx(i int) rawKey {
 	return rawKey(MustMarshal(i))
 }
-
-// From http://tools.ietf.org/html/rfc6901#section-4 :
-//
-// Evaluation of each reference token begins by decoding any escaped
-// character sequence. This is performed by first transforming any
-// occurrence of the sequence '~1' to '/', and then transforming any
-// occurrence of the sequence '~0' to '~'.
-var (
-	rfc6901Decoder = strings.NewReplacer("~1", "/", "~0", "~")
-	rfc6901Encoder = strings.NewReplacer("/", "~1", "~", "~0")
-)
 
 // AccumulatedCopySizeError is an error type returned when the accumulated size
 // increase caused by copy operations in a patch operation has exceeded the
