@@ -34,6 +34,7 @@
 package cborpatch
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/fxamacker/cbor/v2"
@@ -59,26 +60,35 @@ var (
 )
 
 var (
-	encMode, _    = cbor.CanonicalEncOptions().EncMode()
+	decMode, _ = cbor.DecOptions{
+		DupMapKey:   cbor.DupMapKeyEnforcedAPF,
+		IndefLength: cbor.IndefLengthForbidden,
+	}.DecMode()
+
+	encMode, _ = cbor.EncOptions{
+		Sort:        cbor.SortBytewiseLexical,
+		IndefLength: cbor.IndefLengthForbidden,
+	}.EncMode()
+
+	cborUnmarshal = decMode.Unmarshal
+	cborValid     = decMode.Valid
 	cborMarshal   = encMode.Marshal
-	cborUnmarshal = cbor.Unmarshal
 )
 
 // SetCBOR set the underlying global CBOR Marshal and Unmarshal functions.
-// The default is cbor.CanonicalEncOptions's Marshal and default cbor.Unmarshal.
 //
-//  func init() {
-//  	var EncMode, _ = cbor.CanonicalEncOptions().EncMode()
-//  	var DecMode, _ = cbor.DecOptions{
-//  		DupMapKey:   cbor.DupMapKeyQuiet,
-//  		IndefLength: cbor.IndefLengthForbidden,
-//  	}.DecMode()
+//	func init() {
+//		var EncMode, _ = cbor.CanonicalEncOptions().EncMode()
+//		var DecMode, _ = cbor.DecOptions{
+//			DupMapKey:   cbor.DupMapKeyQuiet,
+//			IndefLength: cbor.IndefLengthForbidden,
+//		}.DecMode()
 //
-//  	cborpatch.SetCBOR(EncMode.Marshal, DecMode.Unmarshal)
-//  }
+//		cborpatch.SetCBOR(EncMode.Marshal, DecMode.Unmarshal)
+//	}
 func SetCBOR(
-	marshal func(v interface{}) ([]byte, error),
-	unmarshal func(data []byte, v interface{}) error,
+	marshal func(v any) ([]byte, error),
+	unmarshal func(data []byte, v any) error,
 ) {
 	cborMarshal = marshal
 	cborUnmarshal = unmarshal
@@ -86,6 +96,8 @@ func SetCBOR(
 
 // RawMessage is a raw encoded CBOR value.
 type RawMessage = cbor.RawMessage
+
+type ByteString = cbor.ByteString
 
 // CBORType is the type of a raw encoded CBOR value.
 type CBORType uint8
@@ -122,4 +134,22 @@ func ReadCBORType(data []byte) CBORType {
 	default:
 		return CBORType(data[0] & 0xe0)
 	}
+}
+
+func MustMarshal(val any) []byte {
+	data, err := cborMarshal(val)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+// Diagify returns the doc as CBOR diagnostic notation.
+// If the doc is a invalid CBOR bytes, it returns the doc with base16 encoding like a byte string.
+func Diagify(doc []byte) string {
+	if data, err := cbor.Diag(doc, nil); err == nil {
+		return string(data)
+	}
+
+	return fmt.Sprintf("h'%x'", doc)
 }

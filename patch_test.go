@@ -56,7 +56,7 @@ func reformatJSON(j string) string {
 }
 
 func compareJSON(a, b string) bool {
-	var objA, objB interface{}
+	var objA, objB any
 	json.Unmarshal([]byte(a), &objA)
 	json.Unmarshal([]byte(b), &objB)
 
@@ -68,9 +68,9 @@ func applyPatch(doc, patch string) (string, error) {
 }
 
 func applyPatchWithOptions(doc, patch string, options *Options) (string, error) {
-	obj, err := NewPatch(MustFromJSON(patch))
+	obj, err := PatchFromJSON(patch)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
 
 	out, err := obj.ApplyWithOptions(MustFromJSON(doc), options)
@@ -760,20 +760,22 @@ func TestAllCases(t *testing.T) {
 	// Test patch.ApplyWithOptions happy-path cases.
 	options := NewOptions()
 
-	for _, c := range Cases {
-		options.AllowMissingPathOnRemove = c.allowMissingPathOnRemove
-		options.EnsurePathExistsOnAdd = c.ensurePathExistsOnAdd
+	for i, c := range Cases {
+		t.Run(fmt.Sprintf("Case %d", i), func(t *testing.T) {
+			options.AllowMissingPathOnRemove = c.allowMissingPathOnRemove
+			options.EnsurePathExistsOnAdd = c.ensurePathExistsOnAdd
 
-		out, err := applyPatchWithOptions(c.doc, c.patch, options)
+			out, err := applyPatchWithOptions(c.doc, c.patch, options)
 
-		if err != nil {
-			t.Errorf("Unable to apply patch: %s", err)
-		}
+			if err != nil {
+				t.Errorf("Unable to apply patch: %s", err)
+			}
 
-		if !compareJSON(out, c.result) {
-			t.Errorf("Patch did not apply. Expected:\n%s\n\nActual:\n%s",
-				reformatJSON(c.result), reformatJSON(out))
-		}
+			if !compareJSON(out, c.result) {
+				t.Errorf("Patch did not apply. Expected:\n%s\n\nActual:\n%s",
+					reformatJSON(c.result), reformatJSON(out))
+			}
+		})
 	}
 
 	for _, c := range MutationTestCases {
@@ -821,7 +823,7 @@ var TestCases = []TestCase{
 		`{ "baz": "qux" }`,
 		`[ { "op": "test", "path": "/baz", "value": "bar" } ]`,
 		false,
-		"/baz",
+		`["baz"]`,
 	},
 	{
 		`{
@@ -833,13 +835,13 @@ var TestCases = []TestCase{
       { "op": "test", "path": "/foo/1", "value": "c" }
     ]`,
 		false,
-		"/foo/1",
+		`["foo", 1]`,
 	},
 	{
 		`{ "baz": "qux" }`,
 		`[ { "op": "test", "path": "/foo", "value": 42 } ]`,
 		false,
-		"/foo",
+		`["foo"]`,
 	},
 	{
 		`{ "baz": "qux" }`,
@@ -857,13 +859,13 @@ var TestCases = []TestCase{
 		`{ "foo": {} }`,
 		`[ { "op": "test", "path": "/foo", "value": null } ]`,
 		false,
-		"/foo",
+		`["foo"]`,
 	},
 	{
 		`{ "foo": [] }`,
 		`[ { "op": "test", "path": "/foo", "value": null } ]`,
 		false,
-		"/foo",
+		`["foo"]`,
 	},
 	{
 		`{ "baz/foo": "qux" }`,
@@ -875,19 +877,19 @@ var TestCases = []TestCase{
 		`{ "foo": [] }`,
 		`[ { "op": "test", "path": "/foo"} ]`,
 		false,
-		"/foo",
+		`["foo"]`,
 	},
 	{
 		`{ "foo": "bar" }`,
 		`[ { "op": "test", "path": "/baz", "value": "bar" } ]`,
 		false,
-		"/baz",
+		`["baz"]`,
 	},
 	{
 		`{ "foo": "bar" }`,
 		`[ { "op": "test", "path": "/baz", "value": null } ]`,
 		true,
-		"/baz",
+		`["baz"]`,
 	},
 }
 
@@ -911,7 +913,7 @@ func TestAllTest(t *testing.T) {
 func TestAdd(t *testing.T) {
 	testCases := []struct {
 		name                   string
-		key                    string
+		key                    rawKey
 		val                    Node
 		arr                    partialArray
 		rejectNegativeIndicies bool
@@ -919,33 +921,33 @@ func TestAdd(t *testing.T) {
 	}{
 		{
 			name: "should work",
-			key:  "0",
+			key:  rawKey(MustMarshal(0)),
 			val:  Node{},
 			arr:  partialArray{},
 		},
 		{
 			name: "index too large",
-			key:  "1",
+			key:  rawKey(MustMarshal(1)),
 			val:  Node{},
 			arr:  partialArray{},
 			err:  "unable to access invalid index 1, invalid index referenced",
 		},
 		{
 			name: "negative should work",
-			key:  "-1",
+			key:  rawKey(MustMarshal(-1)),
 			val:  Node{},
 			arr:  partialArray{},
 		},
 		{
 			name: "negative too small",
-			key:  "-2",
+			key:  rawKey(MustMarshal(-2)),
 			val:  Node{},
 			arr:  partialArray{},
 			err:  "unable to access invalid index -2, invalid index referenced",
 		},
 		{
 			name:                   "negative but negative disabled",
-			key:                    "-1",
+			key:                    rawKey(MustMarshal(-1)),
 			val:                    Node{},
 			arr:                    partialArray{},
 			rejectNegativeIndicies: true,
@@ -957,11 +959,10 @@ func TestAdd(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			key := tc.key
 			arr := &tc.arr
 			val := &tc.val
 			options.SupportNegativeIndices = !tc.rejectNegativeIndicies
-			err := arr.add(key, val, options)
+			err := arr.add(tc.key, val, options)
 			if err == nil && tc.err != "" {
 				t.Errorf("Expected error but got none! %v", tc.err)
 			} else if err != nil && tc.err == "" {

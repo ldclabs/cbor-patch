@@ -11,22 +11,22 @@ import (
 	"math"
 	"math/big"
 	"strconv"
+	"strings"
 )
 
 // FromJSON converts a JSON-encoded data to a CBOR-encoded data with a optional value as struct container.
 // If v is not nil, it will decode data into v and then encode v to CBOR-encoded data.
 // If v is nil, it will decode data with the following rules:
 //
-//     JSON booleans decode to bool.
-//     JSON positive integers decode to uint64 (big.Int if value overflows).
-//     JSON negative integers decode to int64 (big.Int if value overflows).
-//     JSON floating points decode to float64.
-//     JSON text strings decode to string.
-//     JSON arrays decode to []interface{}.
-//     JSON objects decode to map[string]interface{}.
-//     JSON null decode to nil.
-//
-func FromJSON(doc []byte, v interface{}) ([]byte, error) {
+//	JSON booleans decode to bool.
+//	JSON positive integers decode to uint64 (big.Int if value overflows).
+//	JSON negative integers decode to int64 (big.Int if value overflows).
+//	JSON floating points decode to float64.
+//	JSON text strings decode to string.
+//	JSON arrays decode to []any.
+//	JSON objects decode to map[string]any.
+//	JSON null decode to nil.
+func FromJSON(doc []byte, v any) ([]byte, error) {
 	if len(doc) == 0 {
 		return doc, nil
 	}
@@ -61,7 +61,7 @@ func MustFromJSON(doc string) []byte {
 
 // ToJSON converts a CBOR-encoded data to a JSON-encoded data with a optional value as struct container.
 // If v is not nil, it will decode data into v and then encode v to JSON-encoded data.
-func ToJSON(doc []byte, v interface{}) ([]byte, error) {
+func ToJSON(doc []byte, v any) ([]byte, error) {
 	if len(doc) == 0 {
 		return doc, nil
 	}
@@ -86,6 +86,114 @@ func MustToJSON(doc []byte) string {
 	return string(data)
 }
 
+func PathFromJSON(jsonpath string) (Path, error) {
+	if jsonpath == "" {
+		return Path{}, nil
+	}
+
+	if jsonpath[0] != '/' {
+		return nil, fmt.Errorf("invalid JSON Pointer %q", jsonpath)
+	}
+
+	parts := strings.Split(jsonpath[1:], "/")
+	path := make(Path, len(parts))
+	for i, part := range parts {
+		token := rfc6901Decoder.Replace(part)
+		if len(token) > 0 {
+			switch token[0] {
+			case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				if v, err := strconv.Atoi(token); err == nil {
+					data, err := cborMarshal(v)
+					if err != nil {
+						return nil, err
+					}
+
+					path[i] = rawKey(data)
+					continue
+				}
+			}
+		}
+
+		data, err := cborMarshal(token)
+		if err != nil {
+			return nil, err
+		}
+		path[i] = rawKey(data)
+	}
+
+	return path, nil
+}
+
+func PathMustFromJSON(jsonpath string) Path {
+	path, err := PathFromJSON(jsonpath)
+	if err != nil {
+		panic(err)
+	}
+	return path
+}
+
+type jsonOperation struct {
+	Op    string           `json:"op"`
+	Path  string           `json:"path"`
+	From  *string          `json:"from,omitempty"`
+	Value *json.RawMessage `json:"value,omitempty"`
+}
+
+func PatchFromJSON(jsonpatch string) (Patch, error) {
+	var err error
+	jp := make([]jsonOperation, 0)
+	if err = json.Unmarshal([]byte(jsonpatch), &jp); err != nil {
+		return nil, err
+	}
+
+	patch := make(Patch, len(jp))
+	for i, p := range jp {
+		var op Op
+
+		switch p.Op {
+		default:
+			return nil, fmt.Errorf("invalid json patch operation %q", p.Op)
+		case "add":
+			op = OpAdd
+		case "remove":
+			op = OpRemove
+		case "replace":
+			op = OpReplace
+		case "move":
+			op = OpMove
+		case "copy":
+			op = OpCopy
+		case "test":
+			op = OpTest
+		}
+
+		o := &Operation{Op: op}
+		if o.Path, err = PathFromJSON(p.Path); err != nil {
+			return nil, err
+		}
+
+		if p.From != nil {
+			if o.From, err = PathFromJSON(*p.From); err != nil {
+				return nil, err
+			}
+		}
+
+		if p.Value != nil {
+			data, err := FromJSON(*p.Value, nil)
+			if err != nil {
+				return nil, err
+			}
+			o.Value = data
+		}
+
+		if err = o.Valid(); err != nil {
+			return nil, err
+		}
+		patch[i] = o
+	}
+	return patch, nil
+}
+
 func readJSONKey(dec *json.Decoder) (string, error) {
 	t, err := dec.Token()
 	if err != nil {
@@ -98,7 +206,7 @@ func readJSONKey(dec *json.Decoder) (string, error) {
 	return "", fmt.Errorf("expected a string as key, got token %v", t)
 }
 
-func readJSONValue(dec *json.Decoder) (interface{}, error) {
+func readJSONValue(dec *json.Decoder) (any, error) {
 	t, err := dec.Token()
 	if err != nil {
 		return nil, err
@@ -108,7 +216,7 @@ func readJSONValue(dec *json.Decoder) (interface{}, error) {
 	case json.Delim:
 		switch v {
 		case '{':
-			obj := make(map[string]interface{})
+			obj := make(map[string]any)
 
 			for dec.More() {
 				key, err := readJSONKey(dec)
@@ -128,7 +236,7 @@ func readJSONValue(dec *json.Decoder) (interface{}, error) {
 			return obj, nil
 
 		case '[':
-			arr := make([]interface{}, 0)
+			arr := make([]any, 0)
 
 			for dec.More() {
 				val, err := readJSONValue(dec)
@@ -169,7 +277,7 @@ func maybeFloat(s string) (mf, mbf bool) {
 	return
 }
 
-func convertNumber(n json.Number) (interface{}, error) {
+func convertNumber(n json.Number) (any, error) {
 	s := string(n)
 	mf, mbf := maybeFloat(s)
 	if mbf {
@@ -222,3 +330,14 @@ func convertNumber(n json.Number) (interface{}, error) {
 	}
 	return i, nil
 }
+
+// From http://tools.ietf.org/html/rfc6901#section-4 :
+//
+// Evaluation of each reference token begins by decoding any escaped
+// character sequence. This is performed by first transforming any
+// occurrence of the sequence '~1' to '/', and then transforming any
+// occurrence of the sequence '~0' to '~'.
+var (
+	rfc6901Decoder = strings.NewReplacer("~1", "/", "~0", "~")
+	// rfc6901Encoder = strings.NewReplacer("/", "~1", "~", "~0")
+)

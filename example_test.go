@@ -1,20 +1,23 @@
 // (c) 2022-2022, LDC Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package cborpatch
+package cborpatch_test
 
-import "fmt"
+import (
+	"fmt"
+
+	cborpatch "github.com/ldclabs/cbor-patch"
+)
 
 func ExamplePatch_Apply() {
-	original := MustFromJSON(`{"name": "John", "age": 24, "height": 3.21}`)
+	original := cborpatch.MustFromJSON(`{"name": "John", "age": 24, "height": 3.21}`)
 	fmt.Printf("%x\n", original)
 	// a3636167651818646e616d65644a6f686e66686569676874fb4009ae147ae147ae
-	patchDoc := MustFromJSON(`[
+
+	patch, err := cborpatch.PatchFromJSON(`[
 		{"op": "replace", "path": "/name", "value": "Jane"},
 		{"op": "remove", "path": "/height"}
 	]`)
-
-	patch, err := NewPatch(patchDoc)
 	if err != nil {
 		panic(err)
 	}
@@ -24,7 +27,7 @@ func ExamplePatch_Apply() {
 	}
 	fmt.Printf("%x\n", modified)
 	// a2636167651818646e616d65644a616e65
-	fmt.Printf("%s\n", MustToJSON(modified))
+	fmt.Printf("%s\n", cborpatch.MustToJSON(modified))
 	// {"age":24,"name":"Jane"}
 
 	// Output:
@@ -34,19 +37,15 @@ func ExamplePatch_Apply() {
 }
 
 func ExampleNode_Patch() {
-	original := MustFromJSON(`{"name": "John", "age": 24, "height": 3.21}`)
+	original := cborpatch.MustFromJSON(`{"name": "John", "age": 24, "height": 3.21}`)
 	fmt.Printf("%x\n", original)
 	// a3636167651818646e616d65644a6f686e66686569676874fb4009ae147ae147ae
-	patchDoc0 := MustFromJSON(`[
+
+	node := cborpatch.NewNode(original)
+	patch, err := cborpatch.PatchFromJSON(`[
 		{"op": "replace", "path": "/name", "value": "Jane"},
 		{"op": "remove", "path": "/height"}
 	]`)
-	patchDoc1 := MustFromJSON(`[
-		{"op": "replace", "path": "/age", "value": 25}
-	]`)
-
-	node := NewNode(original)
-	patch, err := NewPatch(patchDoc0)
 	if err != nil {
 		panic(err)
 	}
@@ -67,7 +66,9 @@ func ExampleNode_Patch() {
 	fmt.Printf("%s\n", string(modified))
 	// {"age":24,"name":"Jane"}
 
-	patch, err = NewPatch(patchDoc1)
+	patch, err = cborpatch.PatchFromJSON(`[
+		{"op": "replace", "path": "/age", "value": 25}
+	]`)
 	if err != nil {
 		panic(err)
 	}
@@ -97,19 +98,23 @@ func ExampleNode_Patch() {
 }
 
 func ExampleNode_GetValue() {
-	doc := MustFromJSON(`{
+	doc := cborpatch.MustFromJSON(`{
 		"baz": "qux",
 		"foo": [ "a", 2, "c" ]
 	}`)
-	node := NewNode(doc)
+	node := cborpatch.NewNode(doc)
+	path, err := cborpatch.PathFromJSON("/foo/0")
+	if err != nil {
+		panic(err)
+	}
 
-	value, err := node.GetValue("/foo/0", nil)
+	value, err := node.GetValue(path, nil)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Printf("%x\n", value)
 	// 6161
-	fmt.Printf("%s\n", MustToJSON(value))
+	fmt.Printf("%s\n", cborpatch.MustToJSON(value))
 	// "a"
 
 	// Output:
@@ -118,7 +123,7 @@ func ExampleNode_GetValue() {
 }
 
 func ExampleNode_FindChildren() {
-	doc := MustFromJSON(`["root", ["p",
+	doc := cborpatch.MustFromJSON(`["root", ["p",
 		["span", {"data-type": "text"},
 			["span", {"data-type": "leaf"}, "Hello 1"],
 			["span", {"data-type": "leaf"}, "Hello 2"],
@@ -127,10 +132,10 @@ func ExampleNode_FindChildren() {
 		]
 	]]`)
 
-	node := NewNode(doc)
-	tests := PVs{
-		{"/0", MustFromJSON(`"span"`)},
-		{"/1/data-type", MustFromJSON(`"leaf"`)},
+	node := cborpatch.NewNode(doc)
+	tests := cborpatch.PVs{
+		{cborpatch.PathMustFromJSON("/0"), cborpatch.MustFromJSON(`"span"`)},
+		{cborpatch.PathMustFromJSON("/1/data-type"), cborpatch.MustFromJSON(`"leaf"`)},
 	}
 
 	result, err := node.FindChildren(tests, nil)
@@ -138,11 +143,11 @@ func ExampleNode_FindChildren() {
 		panic(err)
 	}
 	for _, r := range result {
-		fmt.Printf("Path: \"%s\", Value: %x, JSON: %s\n", r.Path, r.Value, MustToJSON(r.Value))
+		fmt.Printf("Path: %s, Value: %x, JSON: %s\n", r.Path, r.Value, cborpatch.MustToJSON(r.Value))
 	}
 
 	// Output:
-	// Path: "/1/1/2", Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2031, JSON: ["span",{"data-type":"leaf"},"Hello 1"]
-	// Path: "/1/1/3", Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2032, JSON: ["span",{"data-type":"leaf"},"Hello 2"]
-	// Path: "/1/1/4", Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2033, JSON: ["span",{"data-type":"leaf"},"Hello 3"]
+	// Path: [1, 1, 2], Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2031, JSON: ["span",{"data-type":"leaf"},"Hello 1"]
+	// Path: [1, 1, 3], Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2032, JSON: ["span",{"data-type":"leaf"},"Hello 2"]
+	// Path: [1, 1, 4], Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2033, JSON: ["span",{"data-type":"leaf"},"Hello 3"]
 }
