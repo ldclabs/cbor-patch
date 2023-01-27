@@ -17,9 +17,9 @@ func (n *Node) GetChild(path Path, options *Options) (*Node, error) {
 	pd, err := n.intoContainer()
 	switch {
 	case err != nil:
-		return nil, fmt.Errorf("unexpected node %q, %v", n.String(), err)
+		return nil, fmt.Errorf("unexpected node %s, %v", n, err)
 	case pd == nil:
-		return nil, fmt.Errorf("unexpected node %q", n.String())
+		return nil, fmt.Errorf("unexpected node %s", n)
 	}
 
 	if options == nil {
@@ -27,7 +27,7 @@ func (n *Node) GetChild(path Path, options *Options) (*Node, error) {
 	}
 	con, key := findObject(&pd, path, options)
 	if con == nil {
-		return nil, fmt.Errorf("unable to get child node by path %q, %v", path, ErrMissing)
+		return nil, fmt.Errorf("unable to get child node by path %s, %v", path, ErrMissing)
 	}
 	return con.get(key, options)
 }
@@ -125,7 +125,7 @@ func findChildNodes(
 				continue
 			}
 			r, e := findChildNodes(n, value,
-				parentpath.withKey(k), subpath, options)
+				parentpath.WithKey(k), subpath, options)
 			if e != nil {
 				return nil, e
 			}

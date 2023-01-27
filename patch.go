@@ -180,9 +180,9 @@ func (n *Node) Patch(p Patch, options *Options) error {
 	pd, err := n.intoContainer()
 	switch {
 	case err != nil:
-		return fmt.Errorf("unexpected node %q, %v", n.String(), err)
+		return fmt.Errorf("unexpected node %s, %v", n, err)
 	case pd == nil:
-		return fmt.Errorf("unexpected node %q", n.String())
+		return fmt.Errorf("unexpected node %s", n)
 	}
 
 	if options == nil {
@@ -190,6 +190,10 @@ func (n *Node) Patch(p Patch, options *Options) error {
 	}
 	var accumulatedCopySize int64
 	for _, op := range p {
+		if err = op.Valid(); err != nil {
+			return err
+		}
+
 		switch op.Op {
 		case OpAdd:
 			err = p.add(&pd, op, options)
@@ -203,14 +207,13 @@ func (n *Node) Patch(p Patch, options *Options) error {
 			err = p.test(&pd, op, options)
 		case OpCopy:
 			err = p.copy(&pd, op, &accumulatedCopySize, options)
-		default:
-			err = fmt.Errorf("unexpected operation %q", op.Op)
 		}
 
 		if err != nil {
 			return err
 		}
 	}
+
 	switch n.which {
 	case eDoc:
 		n.doc = pd.(*partialDoc)
@@ -285,15 +288,15 @@ func (n *Node) UnmarshalCBOR(data []byte) error {
 }
 
 type container interface {
-	get(key rawKey, options *Options) (*Node, error)
-	set(key rawKey, val *Node, options *Options) error
-	add(key rawKey, val *Node, options *Options) error
-	remove(key rawKey, options *Options) error
+	get(key RawKey, options *Options) (*Node, error)
+	set(key RawKey, val *Node, options *Options) error
+	add(key RawKey, val *Node, options *Options) error
+	remove(key RawKey, options *Options) error
 	len() int
 }
 
 type partialDoc struct {
-	obj map[rawKey]*Node
+	obj map[RawKey]*Node
 }
 
 type partialArray []*Node
@@ -314,19 +317,19 @@ func (d *partialDoc) UnmarshalCBOR(data []byte) error {
 	return cborUnmarshal(data, &d.obj)
 }
 
-func (d *partialDoc) set(key rawKey, val *Node, options *Options) error {
+func (d *partialDoc) set(key RawKey, val *Node, options *Options) error {
 	d.obj[key] = val
 	return nil
 }
 
-func (d *partialDoc) add(key rawKey, val *Node, options *Options) error {
+func (d *partialDoc) add(key RawKey, val *Node, options *Options) error {
 	return d.set(key, val, options)
 }
 
-func (d *partialDoc) get(key rawKey, options *Options) (*Node, error) {
+func (d *partialDoc) get(key RawKey, options *Options) (*Node, error) {
 	v, ok := d.obj[key]
 	if !ok {
-		return nil, fmt.Errorf("unable to get nonexistent key %q, %v", key.Key(), ErrMissing)
+		return nil, fmt.Errorf("unable to get nonexistent key %s, %v", key, ErrMissing)
 	}
 	if v == nil {
 		v = NewNode(nil)
@@ -334,13 +337,13 @@ func (d *partialDoc) get(key rawKey, options *Options) (*Node, error) {
 	return v, nil
 }
 
-func (d *partialDoc) remove(key rawKey, options *Options) error {
+func (d *partialDoc) remove(key RawKey, options *Options) error {
 	_, ok := d.obj[key]
 	if !ok {
 		if options.AllowMissingPathOnRemove {
 			return nil
 		}
-		return fmt.Errorf("unable to remove nonexistent key %q, %v", key.Key(), ErrMissing)
+		return fmt.Errorf("unable to remove nonexistent key %s, %v", key, ErrMissing)
 	}
 	delete(d.obj, key)
 	return nil
@@ -352,7 +355,7 @@ func (d *partialDoc) len() int {
 
 // set should only be used to implement the "replace" operation, so "key" must
 // be an already existing index in "d".
-func (d *partialArray) set(key rawKey, val *Node, options *Options) error {
+func (d *partialArray) set(key RawKey, val *Node, options *Options) error {
 	idx, err := key.toInt()
 	if err != nil {
 		return err
@@ -370,7 +373,7 @@ func (d *partialArray) set(key rawKey, val *Node, options *Options) error {
 	return nil
 }
 
-func (d *partialArray) add(key rawKey, val *Node, options *Options) error {
+func (d *partialArray) add(key RawKey, val *Node, options *Options) error {
 	if key == minus {
 		*d = append(*d, val)
 		return nil
@@ -403,7 +406,7 @@ func (d *partialArray) add(key rawKey, val *Node, options *Options) error {
 	return nil
 }
 
-func (d *partialArray) get(key rawKey, options *Options) (*Node, error) {
+func (d *partialArray) get(key RawKey, options *Options) (*Node, error) {
 	idx, err := key.toInt()
 	if err != nil {
 		return nil, err
@@ -427,7 +430,7 @@ func (d *partialArray) get(key rawKey, options *Options) (*Node, error) {
 	return v, nil
 }
 
-func (d *partialArray) remove(key rawKey, options *Options) error {
+func (d *partialArray) remove(key RawKey, options *Options) error {
 	idx, err := key.toInt()
 	if err != nil {
 		return err
@@ -575,11 +578,11 @@ func (p Patch) add(doc *container, op *Operation, options *Options) error {
 
 	con, key := findObject(doc, op.Path, options)
 	if con == nil {
-		return fmt.Errorf("add operation does not apply for %q, %v", op.Path, ErrMissing)
+		return fmt.Errorf("add operation does not apply for %s, %v", op.Path, ErrMissing)
 	}
 
 	if err := con.add(key, NewNode(op.Value), options); err != nil {
-		return fmt.Errorf("add operation does not apply for %q, %v", op.Path, err)
+		return fmt.Errorf("add operation does not apply for %s, %v", op.Path, err)
 	}
 
 	return nil
@@ -591,11 +594,11 @@ func (p Patch) remove(doc *container, op *Operation, options *Options) error {
 		if options.AllowMissingPathOnRemove {
 			return nil
 		}
-		return fmt.Errorf("remove operation does not apply for %q, %v", op.Path, ErrMissing)
+		return fmt.Errorf("remove operation does not apply for %s, %v", op.Path, ErrMissing)
 	}
 
 	if err := con.remove(key, options); err != nil {
-		return fmt.Errorf("remove operation does not apply for %q, %v", op.Path, err)
+		return fmt.Errorf("remove operation does not apply for %s, %v", op.Path, err)
 	}
 	return nil
 }
@@ -619,16 +622,16 @@ func (p Patch) replace(doc *container, op *Operation, options *Options) error {
 
 	con, key := findObject(doc, op.Path, options)
 	if con == nil {
-		return fmt.Errorf("replace operation does not apply for %q, %v", op.Path, ErrMissing)
+		return fmt.Errorf("replace operation does not apply for %s, %v", op.Path, ErrMissing)
 	}
 
 	_, ok := con.get(key, options)
 	if ok != nil {
-		return fmt.Errorf("replace operation does not apply for %q, %v", op.Path, ErrMissing)
+		return fmt.Errorf("replace operation does not apply for %s, %v", op.Path, ErrMissing)
 	}
 
 	if err := con.set(key, NewNode(op.Value), options); err != nil {
-		return fmt.Errorf("replace operation does not apply for %q, %v", op.Path, err)
+		return fmt.Errorf("replace operation does not apply for %s, %v", op.Path, err)
 	}
 	return nil
 }
@@ -636,25 +639,25 @@ func (p Patch) replace(doc *container, op *Operation, options *Options) error {
 func (p Patch) move(doc *container, op *Operation, options *Options) error {
 	con, key := findObject(doc, op.From, options)
 	if con == nil {
-		return fmt.Errorf("move operation does not apply for from %q, %v", op.From, ErrMissing)
+		return fmt.Errorf("move operation does not apply for from %s, %v", op.From, ErrMissing)
 	}
 
 	val, err := con.get(key, options)
 	if err != nil {
-		return fmt.Errorf("move operation does not apply for from %q, %v", op.From, err)
+		return fmt.Errorf("move operation does not apply for from %s, %v", op.From, err)
 	}
 
 	if err = con.remove(key, options); err != nil {
-		return fmt.Errorf("move operation does not apply for from %q, %v", op.From, err)
+		return fmt.Errorf("move operation does not apply for from %s, %v", op.From, err)
 	}
 
 	con, key = findObject(doc, op.Path, options)
 	if con == nil {
-		return fmt.Errorf("move operation does not apply for path %q, %v", op.Path, ErrMissing)
+		return fmt.Errorf("move operation does not apply for path %s, %v", op.Path, ErrMissing)
 	}
 
 	if err = con.add(key, val, options); err != nil {
-		return fmt.Errorf("move operation does not apply for path %q, %v", op.Path, err)
+		return fmt.Errorf("move operation does not apply for path %s, %v", op.Path, err)
 	}
 	return nil
 }
@@ -677,59 +680,59 @@ func (p Patch) test(doc *container, op *Operation, options *Options) error {
 			return nil
 		}
 
-		return fmt.Errorf("test operation for path %q failed, not equal", op.Path)
+		return fmt.Errorf("test operation for path %s failed, not equal", op.Path)
 	}
 
 	con, key := findObject(doc, op.Path, options)
 	if con == nil {
-		return fmt.Errorf("test operation for path %q failed, %v", op.Path, ErrMissing)
+		return fmt.Errorf("test operation for path %s failed, %v", op.Path, ErrMissing)
 	}
 
 	val, err := con.get(key, options)
 	if err != nil && !strings.Contains(err.Error(), ErrMissing.Error()) {
-		return fmt.Errorf("test operation for path %q failed, %v", op.Path, err)
+		return fmt.Errorf("test operation for path %s failed, %v", op.Path, err)
 	}
 
 	if val == nil || val.isNull() {
 		if isNull(op.Value) {
 			return nil
 		}
-		return fmt.Errorf("test operation for path %q failed, expected %q, got nil",
-			op.Path, NewNode(op.Value).String())
+		return fmt.Errorf("test operation for path %s failed, expected %s, got nil",
+			op.Path, NewNode(op.Value))
 
 	} else if op.Value == nil {
-		return fmt.Errorf("test operation for path %q failed, expected nil, got %q",
-			op.Path, val.String())
+		return fmt.Errorf("test operation for path %s failed, expected nil, got %s",
+			op.Path, val)
 	}
 
 	if val.Equal(NewNode(op.Value)) {
 		return nil
 	}
 
-	return fmt.Errorf("test operation for path %q failed, expected %q, got %q",
-		op.Path, NewNode(op.Value).String(), val.String())
+	return fmt.Errorf("test operation for path %s failed, expected %s, got %s",
+		op.Path, NewNode(op.Value), val)
 }
 
 func (p Patch) copy(doc *container, op *Operation, accumulatedCopySize *int64, options *Options) error {
 	con, key := findObject(doc, op.From, options)
 
 	if con == nil {
-		return fmt.Errorf("copy operation does not apply for from path %q, %v", op.From, ErrMissing)
+		return fmt.Errorf("copy operation does not apply for from path %s, %v", op.From, ErrMissing)
 	}
 
 	val, err := con.get(key, options)
 	if err != nil {
-		return fmt.Errorf("copy operation does not apply for from path %q, %v", op.From, err)
+		return fmt.Errorf("copy operation does not apply for from path %s, %v", op.From, err)
 	}
 
 	con, key = findObject(doc, op.Path, options)
 	if con == nil {
-		return fmt.Errorf("copy operation does not apply for path %q, %v", op.Path, ErrMissing)
+		return fmt.Errorf("copy operation does not apply for path %s, %v", op.Path, ErrMissing)
 	}
 
 	valCopy, sz, err := deepCopy(val)
 	if err != nil {
-		return fmt.Errorf("copy operation does not apply for path %q while performing deep copy, %v", op.Path, err)
+		return fmt.Errorf("copy operation does not apply for path %s while performing deep copy, %v", op.Path, err)
 	}
 
 	(*accumulatedCopySize) += int64(sz)
@@ -746,7 +749,7 @@ func (p Patch) copy(doc *container, op *Operation, accumulatedCopySize *int64, o
 	return nil
 }
 
-func findObject(pd *container, path Path, options *Options) (container, rawKey) {
+func findObject(pd *container, path Path, options *Options) (container, RawKey) {
 	doc := *pd
 
 	if len(path) == 0 {
@@ -855,7 +858,7 @@ func ensurePathExists(pd *container, path Path, options *Options) error {
 		} else {
 			doc, err = target.intoContainer()
 			if doc == nil {
-				return fmt.Errorf("unable to ensure path for invalid target %q, %v", target.String(), err)
+				return fmt.Errorf("unable to ensure path for invalid target %s, %v", target, err)
 			}
 		}
 	}
@@ -882,8 +885,8 @@ func isNull(data RawMessage) bool {
 	return false
 }
 
-func encodeArrayIdx(i int) rawKey {
-	return rawKey(MustMarshal(i))
+func encodeArrayIdx(i int) RawKey {
+	return RawKey(MustMarshal(i))
 }
 
 // AccumulatedCopySizeError is an error type returned when the accumulated size

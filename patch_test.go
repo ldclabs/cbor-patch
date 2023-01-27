@@ -42,7 +42,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -902,7 +901,7 @@ func TestAllTest(t *testing.T) {
 		} else if !c.result && err == nil {
 			t.Errorf("Testing case %d passed when it should have failed: %s", i, err)
 		} else if !c.result {
-			expected := fmt.Sprintf("test operation for path %s failed, expected", strconv.Quote(c.failedPath))
+			expected := fmt.Sprintf("test operation for path %s failed, expected", c.failedPath)
 			if !strings.Contains(err.Error(), expected) {
 				t.Errorf("Testing case %d failed as expected but invalid message: expected [%s], got [%s]", i, expected, err)
 			}
@@ -913,7 +912,7 @@ func TestAllTest(t *testing.T) {
 func TestAdd(t *testing.T) {
 	testCases := []struct {
 		name                   string
-		key                    rawKey
+		key                    RawKey
 		val                    Node
 		arr                    partialArray
 		rejectNegativeIndicies bool
@@ -921,33 +920,33 @@ func TestAdd(t *testing.T) {
 	}{
 		{
 			name: "should work",
-			key:  rawKey(MustMarshal(0)),
+			key:  RawKey(MustMarshal(0)),
 			val:  Node{},
 			arr:  partialArray{},
 		},
 		{
 			name: "index too large",
-			key:  rawKey(MustMarshal(1)),
+			key:  RawKey(MustMarshal(1)),
 			val:  Node{},
 			arr:  partialArray{},
 			err:  "unable to access invalid index 1, invalid index referenced",
 		},
 		{
 			name: "negative should work",
-			key:  rawKey(MustMarshal(-1)),
+			key:  RawKey(MustMarshal(-1)),
 			val:  Node{},
 			arr:  partialArray{},
 		},
 		{
 			name: "negative too small",
-			key:  rawKey(MustMarshal(-2)),
+			key:  RawKey(MustMarshal(-2)),
 			val:  Node{},
 			arr:  partialArray{},
 			err:  "unable to access invalid index -2, invalid index referenced",
 		},
 		{
 			name:                   "negative but negative disabled",
-			key:                    rawKey(MustMarshal(-1)),
+			key:                    RawKey(MustMarshal(-1)),
 			val:                    Node{},
 			arr:                    partialArray{},
 			rejectNegativeIndicies: true,

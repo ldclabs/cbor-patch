@@ -56,7 +56,7 @@ func (o *Operation) Valid() error {
 
 	switch o.Op {
 	default:
-		return fmt.Errorf("invalid operation: %d", o.Op)
+		return fmt.Errorf("invalid operation %q", o.Op)
 
 	case OpAdd:
 		if o.From != nil {
@@ -134,7 +134,7 @@ func (op Op) Operation(from, path []any, value any) (*Operation, error) {
 	return o, nil
 }
 
-type Path []rawKey
+type Path []RawKey
 
 func PathFrom(keys ...any) (Path, error) {
 	path := make(Path, len(keys))
@@ -143,13 +143,22 @@ func PathFrom(keys ...any) (Path, error) {
 		if err != nil {
 			return nil, err
 		}
-		rk := rawKey(data)
-		if !rk.isValid() {
-			return nil, fmt.Errorf("%q can not be used as map key", ReadCBORType(data).String())
+
+		rk := RawKey(data)
+		if err = rk.Valid(); err != nil {
+			return nil, err
 		}
 		path[i] = rk
 	}
 	return path, nil
+}
+
+func PathMustFrom(keys ...any) Path {
+	path, err := PathFrom(keys...)
+	if err != nil {
+		panic(err)
+	}
+	return path
 }
 
 // String returns the Path as CBOR diagnostic notation.
@@ -171,10 +180,10 @@ func (p Path) String() string {
 }
 
 func (p Path) withIndex(i int) Path {
-	return p.withKey(rawKey(MustMarshal(i)))
+	return p.WithKey(RawKey(MustMarshal(i)))
 }
 
-func (p Path) withKey(key rawKey) Path {
+func (p Path) WithKey(key RawKey) Path {
 	np := make(Path, len(p)+1)
 	copy(np, p)
 	np[len(np)-1] = key
@@ -182,15 +191,15 @@ func (p Path) withKey(key rawKey) Path {
 }
 
 // rawKey is a raw encoded CBOR value for map key.
-type rawKey string
+type RawKey string
 
-var minus = rawKey([]byte{0x61, 0x2d}) // "-"
+var minus = RawKey([]byte{0x61, 0x2d}) // "-"
 
-func (k rawKey) isMinus() bool {
+func (k RawKey) isMinus() bool {
 	return k == minus
 }
 
-func (k rawKey) isIndex() bool {
+func (k RawKey) isIndex() bool {
 	if k.isMinus() {
 		return true
 	}
@@ -203,17 +212,17 @@ func (k rawKey) isIndex() bool {
 	}
 }
 
-func (k rawKey) isValid() bool {
-	switch ReadCBORType([]byte(k)) {
+func (k RawKey) Valid() error {
+	switch t := ReadCBORType([]byte(k)); t {
 	default:
-		return false
+		return fmt.Errorf("%q can not be used as map key", t)
 
 	case CBORTypePositiveInt, CBORTypeNegativeInt, CBORTypeTextString, CBORTypeByteString:
-		return true
+		return cborValid([]byte(k))
 	}
 }
 
-func (k rawKey) toInt() (int, error) {
+func (k RawKey) toInt() (int, error) {
 	if k.isMinus() {
 		return -1, nil
 	}
@@ -226,13 +235,28 @@ func (k rawKey) toInt() (int, error) {
 	return i, nil
 }
 
+func (k RawKey) Bytes() []byte {
+	return []byte(k)
+}
+
+func (k RawKey) Equal(other RawKey) bool {
+	return k == other
+}
+
+func (k RawKey) Is(other any) bool {
+	if data, err := cborMarshal(other); err == nil {
+		return k.Equal(RawKey(data))
+	}
+	return false
+}
+
 // String returns the rawKey as CBOR diagnostic notation.
-func (k rawKey) String() string {
+func (k RawKey) String() string {
 	return Diagify([]byte(k))
 }
 
 // Key returns a string notation as JSON Object key.
-func (k rawKey) Key() string {
+func (k RawKey) Key() string {
 	str := k.String()
 	if len(str) > 1 && str[0] == '"' && str[len(str)-1] == '"' {
 		str = str[1 : len(str)-1]
@@ -241,7 +265,7 @@ func (k rawKey) Key() string {
 }
 
 // MarshalCBOR returns m or CBOR nil if m is nil.
-func (k rawKey) MarshalCBOR() ([]byte, error) {
+func (k RawKey) MarshalCBOR() ([]byte, error) {
 	if len(k) == 0 {
 		return []byte{60}, nil
 	}
@@ -249,14 +273,11 @@ func (k rawKey) MarshalCBOR() ([]byte, error) {
 }
 
 // UnmarshalCBOR creates a copy of data and saves to *k.
-func (k *rawKey) UnmarshalCBOR(data []byte) error {
+func (k *RawKey) UnmarshalCBOR(data []byte) error {
 	if k == nil {
-		return errors.New("nil rawKey")
+		return errors.New("nil RawKey")
 	}
 
-	*k = rawKey(data)
-	if !k.isValid() {
-		return fmt.Errorf("%q can not be used as map key", ReadCBORType([]byte(*k)).String())
-	}
-	return nil
+	*k = RawKey(data)
+	return k.Valid()
 }

@@ -108,7 +108,7 @@ func PathFromJSON(jsonpath string) (Path, error) {
 						return nil, err
 					}
 
-					path[i] = rawKey(data)
+					path[i] = RawKey(data)
 					continue
 				}
 			}
@@ -118,7 +118,7 @@ func PathFromJSON(jsonpath string) (Path, error) {
 		if err != nil {
 			return nil, err
 		}
-		path[i] = rawKey(data)
+		path[i] = RawKey(data)
 	}
 
 	return path, nil
@@ -331,13 +331,7 @@ func convertNumber(n json.Number) (any, error) {
 	return i, nil
 }
 
-// From http://tools.ietf.org/html/rfc6901#section-4 :
-//
-// Evaluation of each reference token begins by decoding any escaped
-// character sequence. This is performed by first transforming any
-// occurrence of the sequence '~1' to '/', and then transforming any
-// occurrence of the sequence '~0' to '~'.
+// Refer to http://tools.ietf.org/html/rfc6901#section-4
 var (
 	rfc6901Decoder = strings.NewReplacer("~1", "/", "~0", "~")
-	// rfc6901Encoder = strings.NewReplacer("/", "~1", "~", "~0")
 )
