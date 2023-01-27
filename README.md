@@ -1,15 +1,14 @@
 # CBOR-Patch
-[![ci](https://github.com/ldclabs/cbor-patch/actions/workflows/ci.yml/badge.svg)](https://github.com/ldclabs/cbor-patch/actions?query=workflow%3Aci)
-[![codecov](https://codecov.io/gh/ldclabs/cbor-patch/branch/main/graph/badge.svg)](https://codecov.io/gh/ldclabs/cbor-patch)
+[![CI](https://github.com/ldclabs/cbor-patch/actions/workflows/ci.yml/badge.svg)](https://github.com/ldclabs/cbor-patch/actions/workflows/ci.yml)
+[![Codecov](https://codecov.io/gh/ldclabs/cbor-patch/branch/main/graph/badge.svg)](https://codecov.io/gh/ldclabs/cbor-patch)
+[![CodeQL](https://github.com/ldclabs/cose/actions/workflows/codeql.yml/badge.svg)](https://github.com/ldclabs/cbor-patch/actions/workflows/codeql.yml)
+[![License](http://img.shields.io/badge/license-mit-blue.svg?style=flat-square)](https://raw.githubusercontent.com/ldclabs/cbor-patch/main/LICENSE)
+[![Go Reference](https://pkg.go.dev/badge/github.com/ldclabs/cbor-patch.svg)](https://pkg.go.dev/github.com/ldclabs/cbor-patch)
 
 `cborpatch` is a library which provides functionality for applying
-[RFC6902 JSON patches](https://datatracker.ietf.org/doc/html/rfc6902) on [CBOR](https://datatracker.ietf.org/doc/html/rfc8949).
+[RFC6902 JSON patches](https://datatracker.ietf.org/doc/html/rfc6902) on [CBOR](https://datatracker.ietf.org/doc/html/rfc8949).å
 
-## Documentation
-
-[Go-Documentation](https://pkg.go.dev/github.com/ldclabs/cbor-patch)
-
-CBOR-Patch only supports string keys in a map.
+`cborpatch` supports positive integer, negative integer, byte string and UTF-8 text string as map key.
 
 ## Import
 
@@ -190,8 +189,8 @@ func main() {
 	}
 
 	// Output:
-	// Path: [1,1,2], Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2031, JSON: ["span",{"data-type":"leaf"},"Hello 1"]
-	// Path: [1,1,3], Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2032, JSON: ["span",{"data-type":"leaf"},"Hello 2"]
-	// Path: [1,1,4], Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2033, JSON: ["span",{"data-type":"leaf"},"Hello 3"]
+	// Path: [1, 1, 2], Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2031, JSON: ["span",{"data-type":"leaf"},"Hello 1"]
+	// Path: [1, 1, 3], Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2032, JSON: ["span",{"data-type":"leaf"},"Hello 2"]
+	// Path: [1, 1, 4], Value: 83647370616ea169646174612d74797065646c6561666748656c6c6f2033, JSON: ["span",{"data-type":"leaf"},"Hello 3"]
 }
 ```
